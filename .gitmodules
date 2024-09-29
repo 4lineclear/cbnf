@@ -1,0 +1,3 @@
+[submodule "tree-sitter-cbnf"]
+	path = tree-sitter-cbnf
+	url = https://github.com/4lineclear/tree-sitter-cbnf.git
