@@ -1,0 +1,237 @@
+use super::*;
+
+use expect_test::{expect, Expect};
+
+fn check_raw_str(s: &str, expected: Result<u8, RawStrError>) {
+    let s = format!("r{}", s);
+    let mut cursor = Cursor::new(&s);
+    cursor.bump();
+    let res = cursor.raw_double_quoted_string(0);
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_naked_raw_str() {
+    check_raw_str(r#""abc""#, Ok(0));
+}
+
+#[test]
+fn test_raw_no_start() {
+    check_raw_str(r##""abc"#"##, Ok(0));
+}
+
+#[test]
+fn test_too_many_terminators() {
+    // this error is handled in the parser later
+    check_raw_str(r###"#"abc"##"###, Ok(1));
+}
+
+#[test]
+fn test_unterminated() {
+    check_raw_str(
+        r#"#"abc"#,
+        Err(RawStrError::NoTerminator {
+            expected: 1,
+            found: 0,
+            possible_terminator_offset: None,
+        }),
+    );
+    check_raw_str(
+        r###"##"abc"#"###,
+        Err(RawStrError::NoTerminator {
+            expected: 2,
+            found: 1,
+            possible_terminator_offset: Some(7),
+        }),
+    );
+    // We're looking for "# not just any #
+    check_raw_str(
+        r###"##"abc#"###,
+        Err(RawStrError::NoTerminator {
+            expected: 2,
+            found: 0,
+            possible_terminator_offset: None,
+        }),
+    )
+}
+
+#[test]
+fn test_invalid_start() {
+    check_raw_str(
+        r##"#~"abc"#"##,
+        Err(RawStrError::InvalidStarter { bad_char: '~' }),
+    );
+}
+
+#[test]
+fn test_unterminated_no_pound() {
+    // https://github.com/rust-lang/rust/issues/70677
+    check_raw_str(
+        r#"""#,
+        Err(RawStrError::NoTerminator {
+            expected: 0,
+            found: 0,
+            possible_terminator_offset: None,
+        }),
+    );
+}
+
+#[test]
+fn test_too_many_hashes() {
+    let max_count = u8::MAX;
+    let hashes1 = "#".repeat(max_count as usize);
+    let hashes2 = "#".repeat(max_count as usize + 1);
+    let middle = "\"abc\"";
+    let s1 = [&hashes1, middle, &hashes1].join("");
+    let s2 = [&hashes2, middle, &hashes2].join("");
+
+    // Valid number of hashes (255 = 2^8 - 1 = u8::MAX).
+    check_raw_str(&s1, Ok(255));
+
+    // One more hash sign (256 = 2^8) becomes too many.
+    check_raw_str(
+        &s2,
+        Err(RawStrError::TooManyDelimiters {
+            found: usize::from(max_count) + 1,
+        }),
+    );
+}
+
+fn check_lexing(src: &str, expect: Expect) {
+    let actual: String = tokenize(src)
+        .map(|token| format!("{:?}\n", token))
+        .collect();
+    expect.assert_eq(&actual)
+}
+
+#[test]
+fn smoke_test() {
+    check_lexing(
+        "fn main() { println!(\"zebra\"); } # my source file\n",
+        expect![[r#"
+            Lexeme { kind: Ident, len: 2 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Ident, len: 4 }
+            Lexeme { kind: OpenParen, len: 1 }
+            Lexeme { kind: CloseParen, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: OpenBrace, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Ident, len: 7 }
+            Lexeme { kind: Bang, len: 1 }
+            Lexeme { kind: OpenParen, len: 1 }
+            Lexeme { kind: Literal { kind: Str { terminated: true }, suffix_start: 7 }, len: 7 }
+            Lexeme { kind: CloseParen, len: 1 }
+            Lexeme { kind: Semi, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: CloseBrace, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: LineComment { doc_style: None }, len: 16 }
+            Lexeme { kind: Whitespace, len: 1 }
+        "#]],
+    )
+}
+
+#[test]
+fn comment_flavors() {
+    check_lexing(
+        r"
+# line
+#:: line as well
+#: outer doc line
+#! inner doc line
+",
+        expect![[r#"
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: LineComment { doc_style: None }, len: 6 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: LineComment { doc_style: None }, len: 16 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: LineComment { doc_style: Some(Outer) }, len: 17 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: LineComment { doc_style: Some(Inner) }, len: 17 }
+            Lexeme { kind: Whitespace, len: 1 }
+        "#]],
+    )
+}
+
+#[test]
+fn characters() {
+    check_lexing(
+        "'a' ' ' '\\n'",
+        expect![[r#"
+            Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 4 }, len: 4 }
+        "#]],
+    );
+}
+
+#[test]
+fn incomplete_char() {
+    check_lexing(
+        "'abc",
+        expect![[r#"
+            Lexeme { kind: Literal { kind: Char { terminated: false }, suffix_start: 4 }, len: 4 }
+        "#]],
+    );
+}
+
+#[test]
+fn raw_string() {
+    check_lexing(
+        "r###\"\"#a\\b\x00c\"\"###",
+        expect![[r#"
+            Lexeme { kind: Literal { kind: RawStr { n_hashes: Some(3) }, suffix_start: 17 }, len: 17 }
+        "#]],
+    )
+}
+
+#[test]
+fn literal_suffixes() {
+    check_lexing(
+        r####"
+'a'
+b'a'
+"a"
+b"a"
+1234
+0b101
+0xABC
+1.0
+1.0e10
+2us
+r###"raw"###suffix
+br###"raw"###suffix
+"####,
+        expect![[r#"
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Byte { terminated: true }, suffix_start: 4 }, len: 4 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Str { terminated: true }, suffix_start: 3 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: ByteStr { terminated: true }, suffix_start: 4 }, len: 4 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 4 }, len: 4 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Int { base: Binary, empty_int: false }, suffix_start: 5 }, len: 5 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Int { base: Hexadecimal, empty_int: false }, suffix_start: 5 }, len: 5 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 3 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 6 }, len: 6 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 }, len: 3 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: RawStr { n_hashes: Some(3) }, suffix_start: 12 }, len: 18 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Literal { kind: RawByteStr { n_hashes: Some(3) }, suffix_start: 13 }, len: 19 }
+            Lexeme { kind: Whitespace, len: 1 }
+        "#]],
+    )
+}
