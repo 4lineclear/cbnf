@@ -1,7 +1,5 @@
 use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
-pub type Symbol = ustr::Ustr;
-
 use Either::*;
 use Filtered::*;
 
@@ -75,14 +73,7 @@ impl<T> From<T> for Filtered<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AsStr<'a> {
     Span(AsBSpan),
-    Symbol(Symbol),
     Str(&'a str),
-}
-
-impl From<Symbol> for AsStr<'_> {
-    fn from(value: Symbol) -> Self {
-        Self::Symbol(value)
-    }
 }
 
 impl<'a> From<&'a str> for AsStr<'a> {
@@ -153,9 +144,9 @@ pub fn is_id_continue(c: char) -> bool {
 }
 
 #[must_use]
-pub fn nfc_normalize(string: &str) -> Symbol {
+pub fn nfc_normalize(string: &str) -> String {
     match is_nfc_quick(string.chars()) {
-        IsNormalized::Yes => Symbol::from(string),
-        _ => Symbol::from(&string.chars().nfc().collect::<String>()),
+        IsNormalized::Yes => string.to_owned(),
+        _ => string.chars().nfc().collect::<String>(),
     }
 }

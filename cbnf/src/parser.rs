@@ -58,10 +58,6 @@ impl<'a> Parser<'a> {
     pub fn slice(&self, span: impl Into<AsBSpan>) -> &str {
         self.span(span).slice(self.src())
     }
-    #[must_use]
-    pub fn symbol(&self, span: impl Into<AsBSpan>) -> Symbol {
-        self.slice(span).into()
-    }
     pub fn span(&self, span: impl Into<AsBSpan>) -> BSpan {
         match span.into() {
             AsBSpan::Len(len) => self.token_span(len),
