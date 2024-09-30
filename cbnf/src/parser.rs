@@ -51,16 +51,15 @@ impl<'a> Parser<'a> {
     pub fn push_err(&mut self, err: impl Into<Error>) {
         let err: Error = err.into();
         let Some(prev) = self.errors.last_mut() else {
-            self.errors.push(err.into());
+            self.errors.push(err);
             return;
         };
-        match prev.congregate(err) {
-            Some(err) => self.errors.push(err),
-            None => (),
+        if let Some(err) = prev.congregate(err) {
+            self.errors.push(err);
         }
     }
     #[must_use]
-    fn src(&self) -> &str {
+    const fn src(&self) -> &str {
         self.cursor.src()
     }
     #[must_use]
@@ -87,16 +86,12 @@ impl<'a> Parser<'a> {
         token: Lexeme,
         expected: impl Into<Box<[LexKind]>>,
     ) -> Filtered<T> {
-        match token.kind {
-            Eof => {
-                self.err_eof();
-                return InputEnd;
-            }
-            _ => {
-                self.err_expected(token, expected);
-                return Other(token);
-            }
+        if let Eof = token.kind {
+            self.err_eof();
+            return InputEnd;
         }
+        self.err_expected(token, expected);
+        Other(token)
     }
 }
 
@@ -104,6 +99,7 @@ pub const EXPR_EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, Cl
 pub const RULE_EXPECTED: [LexKind; 3] = [Dollar, Ident, RawIdent];
 
 impl<'a> Parser<'a> {
+    #[must_use]
     pub fn new(input: &'a str) -> Self {
         let cursor = Cursor::new(input);
         let comments = Vec::new();
@@ -115,10 +111,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[must_use]
     pub fn parts(self) -> (Cursor<'a>, Vec<Comment>, Vec<Error>) {
         (self.cursor, self.comments, self.errors)
     }
 
+    #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
         let (name, open_brace) = match self.until_dollar_or_ident() {
             X(()) => return None,
@@ -175,12 +173,12 @@ impl<'a> Parser<'a> {
                 }
                 Literal { kind, .. } => {
                     if !kind.is_string() {
-                        self.push_err((InvalidLiteral::Numeric, span))
+                        self.push_err((InvalidLiteral::Numeric, span));
                     } else if !kind.terminated() {
                         list.terms.push(Term::Literal(span));
-                        self.push_err((InvalidLiteral::Unterminated, span))
+                        self.push_err((InvalidLiteral::Unterminated, span));
                     } else {
-                        list.terms.push(Term::Literal(span))
+                        list.terms.push(Term::Literal(span));
                     }
                 }
                 CloseBrace => break (span, false),

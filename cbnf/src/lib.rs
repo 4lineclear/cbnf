@@ -1,3 +1,4 @@
+// #![allow(clippy::wildcard_imports)]
 use self::lexer::DocStyle;
 use self::parser::error::Error;
 use self::parser::Parser;
@@ -29,7 +30,7 @@ impl From<Parser<'_>> for Cbnf {
     fn from(mut value: Parser<'_>) -> Self {
         let rules = core::iter::from_fn(|| value.next_rule()).collect();
         let (_, comments, errors) = value.parts();
-        Cbnf {
+        Self {
             rules,
             comments,
             errors,
@@ -38,17 +39,21 @@ impl From<Parser<'_>> for Cbnf {
 }
 
 impl Cbnf {
+    #[must_use]
     pub fn rules(&self) -> &[Rule] {
         &self.rules
     }
+    #[must_use]
     pub fn comments(&self) -> &[Comment] {
         &self.comments
     }
+    #[must_use]
     pub fn errors(&self) -> &[Error] {
         &self.errors
     }
+    #[must_use]
     pub fn parse(input: &str) -> Self {
-        Cbnf::from(Parser::new(input))
+        Self::from(Parser::new(input))
     }
 }
 
@@ -83,17 +88,16 @@ pub struct List {
 }
 
 impl List {
-    pub(crate) fn new(span: BSpan) -> Self {
+    pub(crate) const fn new(span: BSpan) -> Self {
         Self {
             terms: Vec::new(),
             span,
         }
     }
     pub(crate) fn reset_span(&mut self, default: BSpan) {
-        self.span = (&self.terms)
-            .first()
-            .map(|f| f.span().to(self.terms.last().unwrap_or(f).span().to))
-            .unwrap_or(default);
+        self.span = self.terms.first().map_or(default, |f| {
+            f.span().to(self.terms.last().unwrap_or(f).span().to)
+        });
     }
 }
 
@@ -111,10 +115,12 @@ pub enum Term {
 }
 
 impl Term {
-    pub fn span(&self) -> BSpan {
+    #[must_use]
+    pub const fn span(&self) -> BSpan {
+        use Term::*;
         match self {
-            Term::Literal(span) | Term::Ident(span) | Term::Meta(span) => *span,
-            Term::Group(e) => e.span,
+            Literal(span) | Ident(span) | Meta(span) => *span,
+            Group(e) => e.span,
         }
     }
 }

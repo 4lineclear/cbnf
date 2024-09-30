@@ -52,6 +52,7 @@ impl BSpan {
         self
     }
 
+    #[must_use]
     pub fn slice<'a>(&self, item: &'a str) -> &'a str {
         &item[self.from..self.to]
     }

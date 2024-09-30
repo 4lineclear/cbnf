@@ -1,22 +1,21 @@
 [workspace]
-members = [ "cbnf", "cbnf-ls"]
+members = ["cbnf", "cbnf-ls"]
 resolver = "2"
 
-[workspace.lints]
-
-# [workspace.lints.rust]
-# unsafe_code = "forbid"
+[workspace.lints.rust]
+unsafe_code = "forbid"
 # missing_docs = "deny"
-# future_incompatible = "deny"
-#
-# [workspace.lints.rustdoc]
-# all = "deny"
-#
-# [workspace.lints.clippy]
-# all = "deny"
-# pedantic = "deny"
-# nursery = "deny"
-#
-# enum_glob_use = "allow"
-# equatable_if_let = "allow"
-# wildcard_imports = "allow"
+future_incompatible = { level = "deny", priority = -1 }
+
+[workspace.lints.rustdoc]
+all = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+enum_glob_use = "allow"
+equatable_if_let = "allow"
+wildcard_imports = "allow"
+module_name_repetitions = "allow"

@@ -206,20 +206,21 @@ pub enum LiteralKind {
 impl LiteralKind {
     #[must_use]
     pub const fn is_string(self) -> bool {
-        !matches!(self, LiteralKind::Int { .. } | LiteralKind::Float { .. })
+        !matches!(self, Self::Int { .. } | Self::Float { .. })
     }
     #[must_use]
     pub const fn terminated(self) -> bool {
+        use LiteralKind::*;
         match self {
-            LiteralKind::Int { .. } | LiteralKind::Float { .. } => true,
-            LiteralKind::Char { terminated }
-            | LiteralKind::Byte { terminated }
-            | LiteralKind::Str { terminated }
-            | LiteralKind::ByteStr { terminated }
-            | LiteralKind::CStr { terminated } => terminated,
-            LiteralKind::RawStr { n_hashes }
-            | LiteralKind::RawByteStr { n_hashes }
-            | LiteralKind::RawCStr { n_hashes } => n_hashes.is_some(),
+            Int { .. } | Float { .. } => true,
+            Char { terminated }
+            | Byte { terminated }
+            | Str { terminated }
+            | ByteStr { terminated }
+            | CStr { terminated } => terminated,
+            RawStr { n_hashes } | RawByteStr { n_hashes } | RawCStr { n_hashes } => {
+                n_hashes.is_some()
+            }
         }
     }
 }
