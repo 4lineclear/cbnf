@@ -89,7 +89,7 @@ impl List {
             span,
         }
     }
-    pub(crate) fn reset_list(&mut self, default: BSpan) {
+    pub(crate) fn reset_span(&mut self, default: BSpan) {
         self.span = (&self.terms)
             .first()
             .map(|f| f.span().to(self.terms.last().unwrap_or(f).span().to))

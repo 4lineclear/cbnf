@@ -1,5 +1,11 @@
-use crate::span::BSpan;
-use crate::{parser::error::Error, Cbnf, Expression, List, Rule};
+use crate::{
+    lexer::LexKind,
+    parser::{
+        error::{Error, InvalidLiteral},
+        EXPR_EXPECTED, RULE_EXPECTED,
+    },
+    Cbnf, Expression, List, Rule,
+};
 
 use pretty_assertions::assert_eq;
 
@@ -26,7 +32,7 @@ macro_rules! test_success {
 
 macro_rules! test_error {
     (
-        $($name:ident, $cbnf:expr, $expected: expr),*
+        $($name:ident, $cbnf:expr, $expected: expr),* $(,)?
     ) => {
         $(
         #[test]
@@ -87,8 +93,77 @@ test_error!(
     [Error::Eof(7)],
     unclosed_group,
     "yeah { ( }",
-    [Error::Unterminated(BSpan::new(9, 10,),), Error::Eof(10)]
+    [Error::Unterminated((9, 10).into()), Error::Eof(10)],
+    unclosed_rule_group,
+    "yeah { ( }",
+    [Error::Unterminated((9, 10).into()), Error::Eof(10)],
+    int_or_float,
+    "yeah { 12_u8 0o100 0b120i99 1f32 12.34f32 1e3 }",
+    numeric![(7, 12), (13, 18), (19, 27), (28, 32), (33, 41), (42, 45)],
+    not_rule_or_ident,
+    "yeah { \\ //\\@# \\ //\\\n}\n\\ //\\@# \\ //\\\n",
+    expected![
+        EXPR_EXPECTED,
+        (7, 8),
+        (9, 13),
+        RULE_EXPECTED,
+        (23, 24),
+        (25, 29)
+    ],
+    meta_after_dollar,
+    "$ $",
+    expected![META_AFTER_DOLLAR, (2, 3)],
+    meta_after_ident,
+    "$yeah $",
+    expected![META_AFTER_IDENT, (6, 7)],
+    rule_after_ident,
+    "yeah $",
+    expected![RULE_AFTER_IDENT, (5, 6)],
+    unterm_char,
+    "yeah { '\n}",
+    [Error::InvalidLit(
+        InvalidLiteral::Unterminated,
+        (7, 8).into()
+    )],
+    unterm_string,
+    "yeah { \"}",
+    [
+        Error::InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
+        Error::Eof(9)
+    ],
 );
+
+const META_AFTER_DOLLAR: [LexKind; 2] = [LexKind::Ident, LexKind::RawIdent];
+const RULE_AFTER_IDENT: [LexKind; 1] = [LexKind::OpenBrace];
+const META_AFTER_IDENT: [LexKind; 2] = [LexKind::Semi, LexKind::OpenBrace];
+
+macro_rules! expected {
+    ($($exp: ident, $(($a: expr, $b: expr)),*),*) => {
+        [$($(
+            expected!($exp, $a, $b),
+        )*)*]
+
+    };
+    ($exp: expr, $a: expr, $b: expr) => {
+        Error::Expected(($a, $b).into(), $exp.into())
+    };
+}
+
+use expected;
+
+macro_rules! numeric {
+    ($(($a: expr, $b: expr)),*) => {
+        [$(
+            numeric !($a, $b),
+        )*]
+
+    };
+    ($a: expr, $b: expr) => {
+        Error::InvalidLit(InvalidLiteral::Numeric, ($a, $b).into())
+    };
+}
+
+use numeric;
 
 fn cbnf_print(src: &str, cbnf: &Cbnf) -> String {
     let mut out = String::with_capacity(src.len());

@@ -47,8 +47,17 @@ impl<'a> Parser<'a> {
         self.push_err(Error::Expected(self.span(span), expected.into()));
     }
 
+    // TODO: add error congegation here
     pub fn push_err(&mut self, err: impl Into<Error>) {
-        self.errors.push(err.into());
+        let err: Error = err.into();
+        let Some(prev) = self.errors.last_mut() else {
+            self.errors.push(err.into());
+            return;
+        };
+        match prev.congregate(err) {
+            Some(err) => self.errors.push(err),
+            None => (),
+        }
     }
     #[must_use]
     fn src(&self) -> &str {
@@ -73,7 +82,26 @@ impl<'a> Parser<'a> {
     const fn token_span(&self, len: usize) -> BSpan {
         BSpan::new(self.token_pos(), self.token_pos() + len)
     }
+    fn handle_other<T>(
+        &mut self,
+        token: Lexeme,
+        expected: impl Into<Box<[LexKind]>>,
+    ) -> Filtered<T> {
+        match token.kind {
+            Eof => {
+                self.err_eof();
+                return InputEnd;
+            }
+            _ => {
+                self.err_expected(token, expected);
+                return Other(token);
+            }
+        }
+    }
 }
+
+pub const EXPR_EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, CloseBrace];
+pub const RULE_EXPECTED: [LexKind; 3] = [Dollar, Ident, RawIdent];
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str) -> Self {
@@ -120,9 +148,7 @@ impl<'a> Parser<'a> {
 
     fn expr(&mut self, open: usize, parens: usize) -> Filtered<Expression> {
         use LexKind::*;
-        const EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, CloseBrace];
         let mut parts = Vec::new();
-        let mut delim = Delim::Or;
         let mut list = List::new(BSpan::new(open, open));
         let (span, paren) = loop {
             let Some(token) = self.lex_non_wc() else {
@@ -130,22 +156,16 @@ impl<'a> Parser<'a> {
             };
             let span = self.span(token);
             match token.kind {
-                OpenParen => {
-                    let expr = self.expr(self.token_pos(), parens + 1);
-                    match expr {
-                        Correct(expr) => {
-                            list.terms.push(Term::Group(expr));
-                        }
-                        Other(_) => (),
-                        InputEnd => return Filtered::InputEnd,
-                    }
-                }
+                OpenParen => match self.expr(self.token_pos(), parens + 1) {
+                    Correct(expr) => list.terms.push(Term::Group(expr)),
+                    Other(_) => (),
+                    InputEnd => return Filtered::InputEnd,
+                },
                 CloseParen if parens != 0 => break (span, true),
                 Ident | RawIdent if self.slice(span) == "or" => {
-                    list.reset_list(BSpan::new(open, span.to));
-                    parts.push((delim, list));
+                    list.reset_span(BSpan::new(open, span.to));
+                    parts.push((Delim::Or, list));
                     list = List::new(BSpan::new(open, open));
-                    delim = Delim::Or;
                 }
                 Ident | RawIdent => list.terms.push(Term::Ident(span)),
                 Dollar => {
@@ -153,21 +173,30 @@ impl<'a> Parser<'a> {
                         list.terms.push(Term::Meta(span.to(ident.to)));
                     }
                 }
-                Literal { kind, .. } if !kind.is_string() || !kind.terminated() => {
-                    self.push_err((InvalidLiteral::Numeric, span))
+                Literal { kind, .. } => {
+                    if !kind.is_string() {
+                        self.push_err((InvalidLiteral::Numeric, span))
+                    } else if !kind.terminated() {
+                        list.terms.push(Term::Literal(span));
+                        self.push_err((InvalidLiteral::Unterminated, span))
+                    } else {
+                        list.terms.push(Term::Literal(span))
+                    }
                 }
-                Literal { .. } => list.terms.push(Term::Literal(span)),
                 CloseBrace => break (span, false),
-                _ => return self.handle_other(token, EXPECTED),
+                Eof => {
+                    self.err_eof();
+                    return InputEnd;
+                }
+                _ => self.err_expected(token, EXPR_EXPECTED),
             }
         };
         if !paren && parens != 0 {
             self.err_unterminated(span);
         }
-        list.reset_list(BSpan::new(open, span.to));
+        let span = BSpan::new(open, self.token_pos() + 1);
+        list.reset_span(span);
         parts.push((Delim::Or, list));
-        let close = self.token_pos();
-        let span = BSpan::new(open, close + 1);
         Expression { span, parts }.into()
     }
 
@@ -206,23 +235,6 @@ impl<'a> Parser<'a> {
             Semi => break true.into(),
             OpenBrace => break false.into(),
         })
-    }
-
-    fn handle_other<T>(
-        &mut self,
-        token: Lexeme,
-        expected: impl Into<Box<[LexKind]>>,
-    ) -> Filtered<T> {
-        match token.kind {
-            Eof => {
-                self.err_eof();
-                return InputEnd;
-            }
-            _ => {
-                self.err_expected(token, expected);
-                return Other(token);
-            }
-        }
     }
 }
 

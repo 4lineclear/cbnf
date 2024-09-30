@@ -18,6 +18,15 @@ pub struct TSpan {
     pub to: usize,
 }
 
+impl From<(usize, usize)> for BSpan {
+    fn from(value: (usize, usize)) -> Self {
+        Self {
+            from: value.0,
+            to: value.1,
+        }
+    }
+}
+
 impl BSpan {
     #[must_use]
     pub const fn is_empty(self) -> bool {
