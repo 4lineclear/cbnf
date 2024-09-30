@@ -11,6 +11,7 @@ pub enum Error {
 }
 
 impl Error {
+    /// `Some(error)` means a non congregated error
     pub fn congregate(&mut self, other: Self) -> Option<Self> {
         // NOTE: only Expected errors are congregated currently,
         // in the future when more errors are supported,

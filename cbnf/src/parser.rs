@@ -1,8 +1,9 @@
 use crate::{
     lexer::{Base, Cursor, LexKind, LiteralKind, *},
+    parser::error::{Error, InvalidLiteral},
     span::BSpan,
     util::*,
-    Comment, Delim, Expression, List, Rule, Term,
+    Comment, Delim, DocComment, Expression, List, Rule, Term,
 };
 
 pub mod error;
@@ -12,7 +13,13 @@ mod test;
 pub struct Parser<'a> {
     cursor: Cursor<'a>,
     comments: Vec<Comment>,
+    docs: Vec<DocComment>,
     errors: Vec<Error>,
+    // NOTE: consider using the below instead of multiple vecs
+    // /// a central list of parts
+    // parts: Vec<(Delim, List)>,
+    // /// a central list of terms
+    // terms: Vec<Term>,
 }
 
 impl<'a> Parser<'a> {
@@ -24,14 +31,22 @@ impl<'a> Parser<'a> {
         let token = self.cursor.advance();
         (!self.filter_comment_or_whitespace(token)).then_some(token)
     }
+    fn lex_until_non_wc(&mut self) -> Option<Lexeme> {
+        loop {
+            let token = self.cursor.advance();
+            if !self.filter_comment_or_whitespace(token) {
+                break Some(token);
+            }
+        }
+    }
     fn push_comment(&mut self, style: Option<DocStyle>, content: impl Into<AsBSpan>) {
-        self.comments.push(Comment {
-            style,
-            content: self.span(content),
-        });
+        let span = self.span(content);
+        match style {
+            Some(style) => self.docs.push(DocComment(style, span)),
+            None => self.comments.push(Comment(span)),
+        }
     }
 
-    // TODO: consider also having a flag for parsing when there is a doc comment
     fn filter_comment_or_whitespace(&mut self, token: Lexeme) -> bool {
         if let LineComment { doc_style } = token.kind {
             self.push_comment(doc_style, token.len);
@@ -47,7 +62,6 @@ impl<'a> Parser<'a> {
         self.push_err(Error::Expected(self.span(span), expected.into()));
     }
 
-    // TODO: add error congegation here
     pub fn push_err(&mut self, err: impl Into<Error>) {
         let err: Error = err.into();
         let Some(prev) = self.errors.last_mut() else {
@@ -101,19 +115,17 @@ pub const RULE_EXPECTED: [LexKind; 3] = [Dollar, Ident, RawIdent];
 impl<'a> Parser<'a> {
     #[must_use]
     pub fn new(input: &'a str) -> Self {
-        let cursor = Cursor::new(input);
-        let comments = Vec::new();
-        let errors = Vec::new();
         Self {
-            cursor,
-            comments,
-            errors,
+            cursor: Cursor::new(input),
+            comments: Vec::new(),
+            docs: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn parts(self) -> (Cursor<'a>, Vec<Comment>, Vec<Error>) {
-        (self.cursor, self.comments, self.errors)
+    pub fn parts(self) -> (Cursor<'a>, Vec<Comment>, Vec<DocComment>, Vec<Error>) {
+        (self.cursor, self.comments, self.docs, self.errors)
     }
 
     #[must_use]
@@ -148,10 +160,10 @@ impl<'a> Parser<'a> {
         use LexKind::*;
         let mut parts = Vec::new();
         let mut list = List::new(BSpan::new(open, open));
+        let Some(mut token) = self.lex_until_non_wc() else {
+            return InputEnd;
+        };
         let (span, paren) = loop {
-            let Some(token) = self.lex_non_wc() else {
-                continue;
-            };
             let span = self.span(token);
             match token.kind {
                 OpenParen => match self.expr(self.token_pos(), parens + 1) {
@@ -166,11 +178,14 @@ impl<'a> Parser<'a> {
                     list = List::new(BSpan::new(open, open));
                 }
                 Ident | RawIdent => list.terms.push(Term::Ident(span)),
-                Dollar => {
-                    if let Correct(ident) = self.ident() {
-                        list.terms.push(Term::Meta(span.to(ident.to)));
+                Dollar => match self.ident() {
+                    Correct(BSpan { to, .. }) => list.terms.push(Term::Meta(span.to(to))),
+                    InputEnd => return InputEnd,
+                    Other(next) => {
+                        token = next;
+                        continue;
                     }
-                }
+                },
                 Literal { kind, .. } => {
                     if !kind.is_string() {
                         self.push_err((InvalidLiteral::Numeric, span));
@@ -188,6 +203,10 @@ impl<'a> Parser<'a> {
                 }
                 _ => self.err_expected(token, EXPR_EXPECTED),
             }
+            match self.lex_until_non_wc() {
+                Some(next) => token = next,
+                None => return InputEnd,
+            };
         };
         if !paren && parens != 0 {
             self.err_unterminated(span);
@@ -273,5 +292,3 @@ macro_rules! look_for {
 }
 
 use look_for;
-
-use self::error::{Error, InvalidLiteral};

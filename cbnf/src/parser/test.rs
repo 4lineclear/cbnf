@@ -19,13 +19,13 @@ macro_rules! test_success {
         $($name:ident, $cbnf:expr, $expected: expr),*
     ) => {
         $(
-        #[test]
-        fn $name() {
-            let cbnf = Cbnf::parse($cbnf);
-            let out = cbnf_print($cbnf, &cbnf);
-            assert_eq!(out, $expected);
-            assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
-        }
+            #[test]
+            fn $name() {
+                let cbnf = Cbnf::parse($cbnf);
+                let out = cbnf_print($cbnf, &cbnf);
+                assert_eq!(out, $expected);
+                assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+            }
         )*
     };
 }
@@ -35,11 +35,13 @@ macro_rules! test_error {
         $($name:ident, $cbnf:expr, $expected: expr),* $(,)?
     ) => {
         $(
-        #[test]
-        fn $name() {
-            let cbnf = Cbnf::parse($cbnf);
-            assert_eq!(cbnf.errors, Vec::<Error>::from($expected));
-        }
+            #[test]
+            fn $name() {
+                let cbnf = Cbnf::parse($cbnf);
+                let actual = format!("{:#?}", cbnf.errors);
+                let expected = format!("{:#?}", Vec::<Error>::from($expected));
+                assert_eq!(actual, expected);
+            }
         )*
     };
 }
@@ -113,6 +115,9 @@ test_error!(
     meta_after_dollar,
     "$ $",
     expected![META_AFTER_DOLLAR, (2, 3)],
+    rule_meta_after_dollar,
+    "$yeah { $ }",
+    expected![META_AFTER_DOLLAR, (10, 11)],
     meta_after_ident,
     "$yeah $",
     expected![META_AFTER_IDENT, (6, 7)],

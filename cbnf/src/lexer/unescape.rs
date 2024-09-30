@@ -11,8 +11,8 @@ use Mode::*;
 #[cfg(test)]
 mod test;
 
-// TODO: revise escape and hopefuly simplify
-// ideally remove some warnings, maybe remove some types of strings for now
+// NOTE:: see link below for how to use the below:
+// https://github.com/rust-lang/rust/blob/63a0bdd5622eaf6b9524702f055bb4525acfc9f2/compiler/rustc_ast/src/util/literal.rs#L78
 
 /// Errors and warnings that can occur during string unescaping. They mostly
 /// relate to malformed escape sequences, but there are a few that are about

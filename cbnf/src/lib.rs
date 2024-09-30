@@ -13,26 +13,28 @@ pub mod util;
 // having several large collections instead of multiple fragmented ones
 
 #[derive(Debug)]
-pub struct Comment {
-    pub style: Option<DocStyle>,
-    pub content: BSpan,
-}
+pub struct Comment(pub BSpan);
+
+#[derive(Debug)]
+pub struct DocComment(pub DocStyle, pub BSpan);
 
 /// Complex Bachus-Naur Form
 #[derive(Default)]
 pub struct Cbnf {
     rules: Vec<Rule>,
     comments: Vec<Comment>,
+    docs: Vec<DocComment>,
     errors: Vec<Error>,
 }
 
 impl From<Parser<'_>> for Cbnf {
     fn from(mut value: Parser<'_>) -> Self {
         let rules = core::iter::from_fn(|| value.next_rule()).collect();
-        let (_, comments, errors) = value.parts();
+        let (_, comments, docs, errors) = value.parts();
         Self {
             rules,
             comments,
+            docs,
             errors,
         }
     }
@@ -46,6 +48,10 @@ impl Cbnf {
     #[must_use]
     pub fn comments(&self) -> &[Comment] {
         &self.comments
+    }
+    #[must_use]
+    pub fn docs(&self) -> &[DocComment] {
+        &self.docs
     }
     #[must_use]
     pub fn errors(&self) -> &[Error] {
