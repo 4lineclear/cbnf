@@ -4,11 +4,14 @@ test:
 md:
     mdflc ./notes/
 
-clippy:
-    cargo clippy --workspace
+clippy *FLAGS:
+    cargo clippy --workspace {{FLAGS}} 
 
-check:
-    cargo check --workspace
+build *FLAGS:
+    cargo check --workspace {{FLAGS}} 
+
+check *FLAGS:
+    cargo check --workspace {{FLAGS}} 
 
 todo:
     rg "todo|FIX|TODO|HACK|WARN|PERF|NOTE|TEST" ./cbnf/ ./cbnf-ls/

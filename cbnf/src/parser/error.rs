@@ -4,7 +4,6 @@ use crate::span::BSpan;
 // TODO: congregate errors
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Error {
-    Eof(usize),
     InvalidLit(InvalidLiteral, BSpan),
     Unterminated(BSpan),
     Expected(BSpan, Box<[lexer::LexKind]>),

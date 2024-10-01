@@ -23,10 +23,6 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn err_eof(&mut self) {
-        self.push_err(Error::Eof(self.token_pos()));
-    }
-
     fn lex_non_wc(&mut self) -> Option<Lexeme> {
         let token = self.cursor.advance();
         (!self.filter_comment_or_whitespace(token)).then_some(token)
@@ -100,10 +96,6 @@ impl<'a> Parser<'a> {
         token: Lexeme,
         expected: impl Into<Box<[LexKind]>>,
     ) -> Filtered<T> {
-        if let Eof = token.kind {
-            self.err_eof();
-            return InputEnd;
-        }
         self.err_expected(token, expected);
         Other(token)
     }
@@ -168,8 +160,8 @@ impl<'a> Parser<'a> {
             match token.kind {
                 OpenParen => match self.expr(self.token_pos(), parens + 1) {
                     Correct(expr) => list.terms.push(Term::Group(expr)),
-                    Other(_) => (),
                     InputEnd => return Filtered::InputEnd,
+                    Other(_) => (),
                 },
                 CloseParen if parens != 0 => break (span, true),
                 Ident | RawIdent if self.slice(span) == "or" => {
@@ -198,10 +190,11 @@ impl<'a> Parser<'a> {
                 }
                 CloseBrace => break (span, false),
                 Eof => {
-                    self.err_eof();
+                    (0..parens).for_each(|_| self.err_unterminated(span));
+                    self.err_expected(span, [CloseBrace]);
                     return InputEnd;
                 }
-                _ => self.err_expected(token, EXPR_EXPECTED),
+                _ => self.err_expected(span, EXPR_EXPECTED),
             }
             match self.lex_until_non_wc() {
                 Some(next) => token = next,

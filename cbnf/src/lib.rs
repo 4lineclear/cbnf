@@ -9,17 +9,16 @@ pub mod parser;
 pub mod span;
 pub mod util;
 
-// TODO: consider replacing all Vec's with TSpan
-// having several large collections instead of multiple fragmented ones
+// TODO: resolve rule names.
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Comment(pub BSpan);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DocComment(pub DocStyle, pub BSpan);
 
 /// Complex Bachus-Naur Form
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct Cbnf {
     rules: Vec<Rule>,
     comments: Vec<Comment>,

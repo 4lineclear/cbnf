@@ -9,6 +9,12 @@ tower-lsp = "0.20"
 tokio = { version = "1.40", features = ["full"] }
 # cbnf
 cbnf = { path = "../cbnf/" }
+# logging
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = "0.3"
+# etc
+dashmap = "6"
 
 [lints]
 workspace = true

@@ -89,16 +89,24 @@ test_success!(
         (561, 565)"
 );
 
+use Error::*;
+
 test_error!(
     unclosed_rule,
     "yeah { ",
-    [Error::Eof(7)],
+    [Expected((7, 7).into(), [LexKind::CloseBrace].into())],
     unclosed_group,
     "yeah { ( }",
-    [Error::Unterminated((9, 10).into()), Error::Eof(10)],
+    [
+        Unterminated((9, 10).into()),
+        Expected((10, 10).into(), [LexKind::CloseBrace].into())
+    ],
     unclosed_rule_group,
-    "yeah { ( }",
-    [Error::Unterminated((9, 10).into()), Error::Eof(10)],
+    "yeah { ( ",
+    [
+        Unterminated((9, 9).into()),
+        Expected((9, 9).into(), [LexKind::CloseBrace].into())
+    ],
     int_or_float,
     "yeah { 12_u8 0o100 0b120i99 1f32 12.34f32 1e3 }",
     numeric![(7, 12), (13, 18), (19, 27), (28, 32), (33, 41), (42, 45)],
@@ -126,15 +134,12 @@ test_error!(
     expected![RULE_AFTER_IDENT, (5, 6)],
     unterm_char,
     "yeah { '\n}",
-    [Error::InvalidLit(
-        InvalidLiteral::Unterminated,
-        (7, 8).into()
-    )],
+    [InvalidLit(InvalidLiteral::Unterminated, (7, 8).into())],
     unterm_string,
     "yeah { \"}",
     [
-        Error::InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
-        Error::Eof(9)
+        InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
+        Expected((9, 9).into(), [LexKind::CloseBrace].into())
     ],
 );
 
@@ -150,7 +155,7 @@ macro_rules! expected {
 
     };
     ($exp: expr, $a: expr, $b: expr) => {
-        Error::Expected(($a, $b).into(), $exp.into())
+        Expected(($a, $b).into(), $exp.into())
     };
 }
 
@@ -164,7 +169,7 @@ macro_rules! numeric {
 
     };
     ($a: expr, $b: expr) => {
-        Error::InvalidLit(InvalidLiteral::Numeric, ($a, $b).into())
+        InvalidLit(InvalidLiteral::Numeric, ($a, $b).into())
     };
 }
 
