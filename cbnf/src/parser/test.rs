@@ -1,10 +1,13 @@
+use std::fmt::Display;
+
 use crate::{
     lexer::LexKind,
     parser::{
         error::{Error, InvalidLiteral},
-        EXPR_EXPECTED, RULE_EXPECTED,
+        LIST_EXPECTED, RULE_EXPECTED,
     },
-    Cbnf, Expression, List, Rule,
+    span::BSpan,
+    Cbnf, List, Rule,
 };
 
 use pretty_assertions::assert_eq;
@@ -14,136 +17,63 @@ use pretty_assertions::assert_eq;
 // TODO: add testing for error cases.
 //
 // TODO: add fuzzing.
-macro_rules! test_success {
-    (
-        $($name:ident, $cbnf:expr, $expected: expr),*
-    ) => {
-        $(
-            #[test]
-            fn $name() {
-                let cbnf = Cbnf::parse($cbnf);
-                let out = cbnf_print($cbnf, &cbnf);
-                assert_eq!(out, $expected);
-                assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
-            }
-        )*
-    };
+
+fn cbnf_print(src: &str, cbnf: &Cbnf) -> String {
+    let mut out = String::with_capacity(src.len());
+    cbnf.rules()
+        .iter()
+        .for_each(|rule| rule_print(&mut out, rule, cbnf));
+    cbnf.rules()
+        .iter()
+        .flat_map(|r| {
+            println!("name: {}", r.name.slice(src));
+            println!("rule: {}", r.span.slice(src));
+            r.expr.clone()
+        })
+        .flat_map(|l| {
+            println!("expr: {}", l.span.slice(src));
+            cbnf.terms(l.terms)
+        })
+        .for_each(|t| println!("term: {}", t.span().slice(src)));
+    out
 }
 
-macro_rules! test_error {
-    (
-        $($name:ident, $cbnf:expr, $expected: expr),* $(,)?
-    ) => {
-        $(
-            #[test]
-            fn $name() {
-                let cbnf = Cbnf::parse($cbnf);
-                let actual = format!("{:#?}", cbnf.errors);
-                let expected = format!("{:#?}", Vec::<Error>::from($expected));
-                assert_eq!(actual, expected);
-            }
-        )*
+fn rule_print(out: &mut String, rule: &Rule, cbnf: &Cbnf) {
+    rule.span.write(out);
+    rule.name.write(out);
+    let Some(list) = &rule.expr else {
+        return;
     };
+    list_print(out, list, cbnf);
 }
 
-test_success!(
-    empty,
-    "yeah { }",
-    "(0, 8)(5, 8)(5, 8)",
-    short_meta,
-    "$yeah;",
-    "(0, 5)",
-    empty_long_meta,
-    "$yeah { }",
-    "(0, 9)(6, 9)(6, 9)",
-    strings,
-    r#"yeah { "one" "two" "three" }"#,
-    "(0, 28)(5, 28)(7, 26)(7, 12)(13, 18)(19, 26)",
-    chars,
-    "yeah { 'o' 't' 'h' }",
-    "(0, 20)(5, 20)(7, 18)(7, 10)(11, 14)(15, 18)",
-    idents,
-    "yeah { one two three }",
-    "(0, 22)(5, 22)(7, 20)(7, 10)(11, 14)(15, 20)",
-    metas,
-    "yeah { $one $two $three }",
-    "(0, 25)(5, 25)(7, 23)(7, 11)(12, 16)(17, 23)",
-    group,
-    "yeah { ( ) }",
-    "(0, 12)(5, 12)(7, 10)(7, 10)",
-    mixed,
-    r#"yeah { nil a $b "c" 'd' (a $b "c" 'd') nil }"#,
-    "(0, 44)(5, 44)(7, 42)(7, 10)(11, 12)(13, 15)(16, 19)(20, 23)(24, 38)(39, 42)",
-    cbnf,
-    include_str!("../../../cbnf.cbnf"),
-    "\
-        (126, 157)(139, 157)(141, 155)(141, 144)(145, 150)(151, 155)(158, 192)\
-        (170, 192)(172, 183)(172, 176)(177, 183)(187, 190)(187, 190)(193, 248)\
-        (203, 248)(205, 234)(205, 221)(222, 225)(226, 230)(231, 234)(238, 246)\
-        (238, 242)(243, 246)(249, 286)(259, 286)(261, 284)(261, 265)(266, 284)\
-        (287, 319)(297, 319)(299, 317)(299, 303)(304, 317)(320, 369)(330, 369)\
-        (332, 339)(332, 339)(343, 349)(343, 349)(353, 357)(353, 357)(361, 366)\
-        (361, 366)(370, 394)(380, 394)(382, 392)(382, 385)(386, 392)(395, 422)\
-        (406, 422)(408, 420)(408, 411)(412, 416)(417, 420)(424, 453)(437, 453)\
-        (439, 451)(439, 442)(443, 447)(448, 451)(455, 460)(478, 483)(506, 512)\
-        (561, 565)"
-);
+fn list_print(out: &mut String, list: &List, cbnf: &Cbnf) {
+    list.span.write(out);
+    cbnf.terms(list.terms)
+        .iter()
+        .for_each(|term| term.span().write(out));
+}
 
-use Error::*;
+impl Display for BSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.from.to_string())?;
+        f.write_str("..")?;
+        f.write_str(&self.to.to_string())?;
+        Ok(())
+    }
+}
 
-test_error!(
-    unclosed_rule,
-    "yeah { ",
-    [Expected((7, 7).into(), [LexKind::CloseBrace].into())],
-    unclosed_group,
-    "yeah { ( }",
-    [
-        Unterminated((9, 10).into()),
-        Expected((10, 10).into(), [LexKind::CloseBrace].into())
-    ],
-    unclosed_rule_group,
-    "yeah { ( ",
-    [
-        Unterminated((9, 9).into()),
-        Expected((9, 9).into(), [LexKind::CloseBrace].into())
-    ],
-    int_or_float,
-    "yeah { 12_u8 0o100 0b120i99 1f32 12.34f32 1e3 }",
-    numeric![(7, 12), (13, 18), (19, 27), (28, 32), (33, 41), (42, 45)],
-    not_rule_or_ident,
-    "yeah { \\ //\\@# \\ //\\\n}\n\\ //\\@# \\ //\\\n",
-    expected![
-        EXPR_EXPECTED,
-        (7, 8),
-        (9, 13),
-        RULE_EXPECTED,
-        (23, 24),
-        (25, 29)
-    ],
-    meta_after_dollar,
-    "$ $",
-    expected![META_AFTER_DOLLAR, (2, 3)],
-    rule_meta_after_dollar,
-    "$yeah { $ }",
-    expected![META_AFTER_DOLLAR, (10, 11)],
-    meta_after_ident,
-    "$yeah $",
-    expected![META_AFTER_IDENT, (6, 7)],
-    rule_after_ident,
-    "yeah $",
-    expected![RULE_AFTER_IDENT, (5, 6)],
-    unterm_char,
-    "yeah { '\n}",
-    [InvalidLit(InvalidLiteral::Unterminated, (7, 8).into())],
-    unterm_string,
-    "yeah { \"}",
-    [
-        InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
-        Expected((9, 9).into(), [LexKind::CloseBrace].into())
-    ],
-);
+impl BSpan {
+    fn write(self, out: &mut String) {
+        out.push('(');
+        out.push_str(&self.from.to_string());
+        out.push_str(", ");
+        out.push_str(&self.to.to_string());
+        out.push(')');
+    }
+}
 
-const META_AFTER_DOLLAR: [LexKind; 2] = [LexKind::Ident, LexKind::RawIdent];
+const IDENT_1: [LexKind; 1] = [LexKind::Ident];
 const RULE_AFTER_IDENT: [LexKind; 1] = [LexKind::OpenBrace];
 const META_AFTER_IDENT: [LexKind; 2] = [LexKind::Semi, LexKind::OpenBrace];
 
@@ -173,46 +103,198 @@ macro_rules! numeric {
     };
 }
 
-use numeric;
-
-fn cbnf_print(src: &str, cbnf: &Cbnf) -> String {
-    let mut out = String::with_capacity(src.len());
-    cbnf.rules()
-        .iter()
-        .for_each(|rule| rule_print(&mut out, rule));
-    out
-}
-
-fn rule_print(out: &mut String, rule: &Rule) {
-    rule.span.write(out);
-    let Some(expr) = &rule.expr else {
-        return;
+macro_rules! debug {
+    ($e:expr) => {
+        format!("{:#?}", $e)
     };
-    expr.span.write(out);
-    expr_print(out, expr);
 }
 
-fn expr_print(out: &mut String, expr: &Expression) {
-    expr.parts
-        .iter()
-        .for_each(|(_, list)| list_print(out, list));
+#[test]
+fn empty() {
+    let cbnf = Cbnf::parse("yeah { }");
+    let out = cbnf_print("yeah { }", &cbnf);
+    assert_eq!(out, "(0, 8)(0, 4)(5, 8)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn short_meta() {
+    let cbnf = Cbnf::parse("$yeah;");
+    let out = cbnf_print("$yeah;", &cbnf);
+    assert_eq!(out, "(0, 5)(0, 5)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn empty_long_meta() {
+    let cbnf = Cbnf::parse("$yeah { }");
+    let out = cbnf_print("$yeah { }", &cbnf);
+    assert_eq!(out, "(0, 9)(0, 5)(6, 9)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn strings() {
+    let cbnf = Cbnf::parse(r#"yeah { "one" "two" "three" }"#);
+    let out = cbnf_print(r#"yeah { "one" "two" "three" }"#, &cbnf);
+    assert_eq!(out, "(0, 28)(0, 4)(5, 28)(7, 12)(13, 18)(19, 26)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn chars() {
+    let cbnf = Cbnf::parse("yeah { 'o' 't' 'h' }");
+    let out = cbnf_print("yeah { 'o' 't' 'h' }", &cbnf);
+    assert_eq!(out, "(0, 20)(0, 4)(5, 20)(7, 10)(11, 14)(15, 18)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn idents() {
+    let cbnf = Cbnf::parse("yeah { one two three }");
+    let out = cbnf_print("yeah { one two three }", &cbnf);
+    assert_eq!(out, "(0, 22)(0, 4)(5, 22)(7, 10)(11, 14)(15, 20)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn metas() {
+    let cbnf = Cbnf::parse("yeah { $one $two $three }");
+    let out = cbnf_print("yeah { $one $two $three }", &cbnf);
+    assert_eq!(out, "(0, 25)(0, 4)(5, 25)(7, 11)(12, 16)(17, 23)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn group() {
+    let cbnf = Cbnf::parse("yeah { ( ) }");
+    let out = cbnf_print("yeah { ( ) }", &cbnf);
+    assert_eq!(out, "(0, 12)(0, 4)(5, 12)(7, 10)");
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn mixed() {
+    let cbnf = Cbnf::parse(r#"yeah { nil a $b "c" 'd' (a $b "c" 'd') nil }"#);
+    let out = cbnf_print(r#"yeah { nil a $b "c" 'd' (a $b "c" 'd') nil }"#, &cbnf);
+    assert_eq!(
+        out,
+        "(0, 44)(0, 4)(5, 44)(7, 10)(11, 12)(13, 15)(16, 19)\
+         (20, 23)(24, 38)(25, 26)(27, 29)(30, 33)(34, 37)(39, 42)"
+    );
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
+}
+#[test]
+fn cbnf() {
+    let cbnf = Cbnf::parse(include_str!("../../../cbnf.cbnf"));
+    let out = cbnf_print(include_str!("../../../cbnf.cbnf"), &cbnf);
+    assert_eq!(
+        out,
+        "\
+            (126, 157)(126, 133)(139, 157)(141, 144)(145, 150)(151, 155)\
+            (158, 192)(158, 164)(170, 192)(172, 176)(177, 183)(184, 186)\
+            (187, 190)(193, 248)(193, 197)(203, 248)(205, 221)(206, 212)\
+            (213, 215)(216, 220)(222, 225)(226, 230)(231, 234)(235, 237)\
+            (238, 242)(243, 246)(249, 281)(249, 253)(259, 281)(261, 265)\
+            (266, 279)(267, 271)(272, 274)(275, 278)(282, 331)(282, 286)\
+            (292, 331)(294, 301)(302, 304)(305, 311)(312, 314)(315, 319)\
+            (320, 322)(323, 328)(332, 356)(332, 336)(342, 356)(344, 347)\
+            (348, 354)(357, 384)(357, 362)(368, 384)(370, 373)(374, 378)\
+            (379, 382)(386, 415)(386, 393)(399, 415)(401, 404)(405, 409)\
+            (410, 413)(417, 422)(417, 422)(440, 445)(440, 445)(468, 474)\
+            (468, 474)(523, 527)(523, 527)"
+    );
+    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
 }
 
-fn list_print(out: &mut String, list: &List) {
-    list.span.write(out);
-    list.terms.iter().for_each(|term| term.span().write(out));
-}
+use Error::*;
 
-trait SpanWrite {
-    fn write(self, out: &mut String);
+#[test]
+fn unclosed_rule() {
+    let cbnf = Cbnf::parse("yeah { ");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!([Expected((7, 7).into(), [LexKind::CloseBrace].into())]);
+    assert_eq!(actual, expected);
 }
-
-impl SpanWrite for crate::span::BSpan {
-    fn write(self, out: &mut String) {
-        out.push('(');
-        out.push_str(&self.from.to_string());
-        out.push_str(", ");
-        out.push_str(&self.to.to_string());
-        out.push(')');
-    }
+#[test]
+fn unclosed_group() {
+    let cbnf = Cbnf::parse("yeah { ( }");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!([Unterminated((7, 10).into())]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn unclosed_rule_group() {
+    let cbnf = Cbnf::parse("yeah { ( ");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!([
+        Unterminated((7, 9).into()),
+        Expected((9, 9).into(), [LexKind::CloseBrace].into())
+    ]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn int_or_float() {
+    let cbnf = Cbnf::parse("yeah { 12_u8 0o100 0b120i99 1f32 12.34f32 1e3 }");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(numeric![
+        (7, 12),
+        (13, 18),
+        (19, 27),
+        (28, 32),
+        (33, 41),
+        (42, 45)
+    ]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn not_rule_or_ident() {
+    let cbnf = Cbnf::parse("yeah { \\ //\\@# \\ //\\\n}\n\\ //\\@# \\ //\\\n");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(expected![
+        LIST_EXPECTED,
+        (7, 8),
+        (9, 13),
+        RULE_EXPECTED,
+        (23, 24),
+        (25, 29)
+    ]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn dollar_repeat() {
+    let cbnf = Cbnf::parse("$ $");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(expected![IDENT_1, (2, 3)]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn empty_dollar() {
+    let cbnf = Cbnf::parse("$yeah { $ }");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(expected![IDENT_1, (10, 11)]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn dolllar_after_rule() {
+    let cbnf = Cbnf::parse("$yeah $");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(expected![META_AFTER_IDENT, (6, 7)]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn rule_after_ident() {
+    let cbnf = Cbnf::parse("yeah $");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!(expected![RULE_AFTER_IDENT, (5, 6)]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn unterm_char() {
+    let cbnf = Cbnf::parse("yeah { '\n}");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!([InvalidLit(InvalidLiteral::Unterminated, (7, 8).into())]);
+    assert_eq!(actual, expected);
+}
+#[test]
+fn unterm_string() {
+    let cbnf = Cbnf::parse("yeah { \"}");
+    let actual = format!("{:#?}", cbnf.errors);
+    let expected = debug!([
+        InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
+        Expected((9, 9).into(), [LexKind::CloseBrace].into())
+    ]);
+    assert_eq!(actual, expected);
 }

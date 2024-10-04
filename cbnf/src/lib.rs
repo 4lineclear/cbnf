@@ -1,8 +1,8 @@
 // #![allow(clippy::wildcard_imports)]
-use self::lexer::DocStyle;
-use self::parser::error::Error;
-use self::parser::Parser;
-use self::span::BSpan;
+use crate::{
+    parser::{error::Error, Parser},
+    span::{BSpan, TSpan},
+};
 
 pub mod lexer;
 pub mod parser;
@@ -10,12 +10,31 @@ pub mod span;
 pub mod util;
 
 // TODO: resolve rule names.
+//
+// TODO: remove all raw idents
 
 #[derive(Clone, Debug)]
-pub struct Comment(pub BSpan);
+pub struct Comment(BSpan);
+
+impl Comment {
+    pub fn b_span(&self) -> BSpan {
+        self.0
+    }
+}
 
 #[derive(Clone, Debug)]
-pub struct DocComment(pub DocStyle, pub BSpan);
+pub struct DocComment(DocStyle, BSpan);
+
+pub use crate::lexer::DocStyle;
+
+impl DocComment {
+    pub fn style(&self) -> DocStyle {
+        self.0
+    }
+    pub fn b_span(&self) -> BSpan {
+        self.1
+    }
+}
 
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
@@ -24,17 +43,18 @@ pub struct Cbnf {
     comments: Vec<Comment>,
     docs: Vec<DocComment>,
     errors: Vec<Error>,
+    terms: Vec<Term>,
 }
 
 impl From<Parser<'_>> for Cbnf {
     fn from(mut value: Parser<'_>) -> Self {
         let rules = core::iter::from_fn(|| value.next_rule()).collect();
-        let (_, comments, docs, errors) = value.parts();
         Self {
             rules,
-            comments,
-            docs,
-            errors,
+            comments: value.comments,
+            docs: value.docs,
+            errors: value.errors,
+            terms: value.terms,
         }
     }
 }
@@ -60,55 +80,56 @@ impl Cbnf {
     pub fn parse(input: &str) -> Self {
         Self::from(Parser::new(input))
     }
+    #[must_use]
+    pub fn terms(&self, span: TSpan) -> &[Term] {
+        &self.terms[span.range()]
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Rule {
     pub name: BSpan,
-    pub expr: Option<Expression>,
+    pub expr: Option<List>,
     /// The span of the entire `Rule`
     ///
     /// This should extend either to the closing brace or semicolon
     pub span: BSpan,
 }
 
-/// An expression is a list seperated by delimiters
-#[derive(Debug, Clone)]
-pub struct Expression {
-    pub span: BSpan,
-    pub parts: Vec<(Delim, List)>,
-}
-
-/// Seperates different lists
-#[derive(Debug, Clone)]
-pub enum Delim {
-    Or,
-}
-
 /// An list is a set of Terms seperated by whitespace
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct List {
-    pub span: BSpan,
-    pub terms: Vec<Term>,
+    span: BSpan,
+    terms: TSpan,
 }
 
 impl List {
-    pub(crate) const fn new(span: BSpan) -> Self {
-        Self {
-            terms: Vec::new(),
-            span,
-        }
+    pub(crate) const fn new(span: BSpan, terms: TSpan) -> Self {
+        Self { terms, span }
     }
-    pub(crate) fn reset_span(&mut self, default: BSpan) {
-        self.span = self.terms.first().map_or(default, |f| {
-            f.span().to(self.terms.last().unwrap_or(f).span().to)
-        });
+
+    pub fn span(&self) -> BSpan {
+        self.span
+    }
+
+    pub fn terms(&self) -> TSpan {
+        self.terms
     }
 }
 
+// #[derive(Debug, Clone)]
+// enum ListKind {
+//     /// A list containing ors
+//     Or(Vec<usize>),
+//     /// A list without delims
+//     Group,
+// }
+
 /// A single item within a list
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Term {
+    /// Or
+    Or(List),
     /// ".."
     Literal(BSpan),
     /// ..
@@ -116,7 +137,7 @@ pub enum Term {
     /// $ ..
     Meta(BSpan),
     /// ( .. )
-    Group(Expression),
+    Group(List),
 }
 
 impl Term {
@@ -125,7 +146,7 @@ impl Term {
         use Term::*;
         match self {
             Literal(span) | Ident(span) | Meta(span) => *span,
-            Group(e) => e.span,
+            Or(list) | Group(list) => list.span,
         }
     }
 }

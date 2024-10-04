@@ -205,6 +205,16 @@ pub enum LiteralKind {
 
 impl LiteralKind {
     #[must_use]
+    pub const fn group(self) -> LiteralGroup {
+        if !self.is_string() {
+            LiteralGroup::Numer
+        } else if !self.terminated() {
+            LiteralGroup::Undelim
+        } else {
+            LiteralGroup::Delim
+        }
+    }
+    #[must_use]
     pub const fn is_string(self) -> bool {
         !matches!(self, Self::Int { .. } | Self::Float { .. })
     }
@@ -223,6 +233,16 @@ impl LiteralKind {
             }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LiteralGroup {
+    /// `String | Char` not terminated
+    Undelim,
+    /// `String | Char`
+    Delim,
+    /// `Int | Float`
+    Numer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

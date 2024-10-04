@@ -1,37 +1,35 @@
 use crate::{
     lexer::{Base, Cursor, LexKind, LiteralKind, *},
     parser::error::{Error, InvalidLiteral},
-    span::BSpan,
+    span::{BSpan, TSpan},
     util::*,
-    Comment, Delim, DocComment, Expression, List, Rule, Term,
+    Comment, DocComment, List, Rule, Term,
 };
 
 pub mod error;
+
 #[cfg(test)]
 mod test;
 
 pub struct Parser<'a> {
-    cursor: Cursor<'a>,
-    comments: Vec<Comment>,
-    docs: Vec<DocComment>,
-    errors: Vec<Error>,
-    // NOTE: consider using the below instead of multiple vecs
-    // /// a central list of parts
-    // parts: Vec<(Delim, List)>,
-    // /// a central list of terms
-    // terms: Vec<Term>,
+    pub(crate) cursor: Cursor<'a>,
+    pub(crate) comments: Vec<Comment>,
+    pub(crate) docs: Vec<DocComment>,
+    pub(crate) errors: Vec<Error>,
+    /// a central list of terms
+    pub(crate) terms: Vec<Term>,
 }
 
 impl<'a> Parser<'a> {
     fn lex_non_wc(&mut self) -> Option<Lexeme> {
         let token = self.cursor.advance();
-        (!self.filter_comment_or_whitespace(token)).then_some(token)
+        (!self.handle_wc(token)).then_some(token)
     }
-    fn lex_until_non_wc(&mut self) -> Option<Lexeme> {
+    fn lex_until_non_wc(&mut self) -> Lexeme {
         loop {
             let token = self.cursor.advance();
-            if !self.filter_comment_or_whitespace(token) {
-                break Some(token);
+            if !self.handle_wc(token) {
+                break token;
             }
         }
     }
@@ -42,23 +40,19 @@ impl<'a> Parser<'a> {
             None => self.comments.push(Comment(span)),
         }
     }
-
-    fn filter_comment_or_whitespace(&mut self, token: Lexeme) -> bool {
+    fn handle_wc(&mut self, token: Lexeme) -> bool {
         if let LineComment { doc_style } = token.kind {
-            self.push_comment(doc_style, token.len);
+            self.push_comment(doc_style, token);
         }
         matches!(token.kind, LineComment { .. } | Whitespace)
     }
-
     fn err_unterminated(&mut self, span: impl Into<AsBSpan>) {
         self.push_err(Error::Unterminated(self.span(span)));
     }
-
     fn err_expected(&mut self, span: impl Into<AsBSpan>, expected: impl Into<Box<[LexKind]>>) {
         self.push_err(Error::Expected(self.span(span), expected.into()));
     }
-
-    pub fn push_err(&mut self, err: impl Into<Error>) {
+    fn push_err(&mut self, err: impl Into<Error>) {
         let err: Error = err.into();
         let Some(prev) = self.errors.last_mut() else {
             self.errors.push(err);
@@ -101,7 +95,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub const EXPR_EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, CloseBrace];
+pub const LIST_EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, CloseBrace];
 pub const RULE_EXPECTED: [LexKind; 3] = [Dollar, Ident, RawIdent];
 
 impl<'a> Parser<'a> {
@@ -112,20 +106,16 @@ impl<'a> Parser<'a> {
             comments: Vec::new(),
             docs: Vec::new(),
             errors: Vec::new(),
+            terms: Vec::new(),
         }
     }
 
     #[must_use]
-    pub fn parts(self) -> (Cursor<'a>, Vec<Comment>, Vec<DocComment>, Vec<Error>) {
-        (self.cursor, self.comments, self.docs, self.errors)
-    }
-
-    #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
-        let (name, open_brace) = match self.until_dollar_or_ident() {
+        let (name, open) = match self.until_dollar_or_ident() {
             X(()) => return None,
             Y(pos) => {
-                let ident = self.ident().opt()?;
+                let ident = self.ident().ok()?;
                 let semi = self.semi_or_open_brace().opt()?;
                 let span = ident.from(pos);
                 if semi {
@@ -139,83 +129,124 @@ impl<'a> Parser<'a> {
             }
             Z(span) => (span, self.open_brace().opt().map(|()| self.token_pos())?),
         };
-        let expr = self.expr(open_brace, 0).opt()?;
-        let span = name.to(expr.span.to);
+        let (close, terms) = self.list();
+        let span = name.to(self.cursor.pos());
         Some(Rule {
             name,
-            expr: Some(expr),
+            expr: Some(List {
+                span: (open, close).into(),
+                terms,
+            }),
             span,
         })
     }
 
-    fn expr(&mut self, open: usize, parens: usize) -> Filtered<Expression> {
-        use LexKind::*;
-        let mut parts = Vec::new();
-        let mut list = List::new(BSpan::new(open, open));
-        let Some(mut token) = self.lex_until_non_wc() else {
-            return InputEnd;
+    fn handle_or(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>) -> bool {
+        let (or, _) = match ors.last().zip(groups.last()) {
+            Some((&o, &g)) if o < g => (o, g),
+            _ => return false,
         };
-        let (span, paren) = loop {
+        let len = self.terms.len();
+        let span_to = self.terms[len - 1].span().to;
+        match &mut self.terms[or] {
+            Term::Or(list) => {
+                list.terms.to = len;
+                list.span.to = span_to;
+            }
+            _ => unreachable!("non 'or' found at index {or}"),
+        }
+        ors.pop();
+        true
+    }
+    fn pop_group(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>, to: usize) {
+        let Some(&group) = groups.last() else { return };
+        let len = self.terms.len();
+        match &mut self.terms[group] {
+            Term::Group(list) => {
+                list.terms.to = len;
+                list.span.to = to;
+            }
+            _ => unreachable!("group 'or' found at index {group}"),
+        }
+        while self.handle_or(ors, groups) {}
+        groups.pop();
+    }
+    fn handle_unclosed(&mut self, groups: Vec<usize>, span: BSpan) {
+        groups.into_iter().for_each(|group| {
+            let err_span;
+            let len = self.terms.len();
+            if let Term::Group(group) = &mut self.terms[group] {
+                group.span.to = span.to;
+                group.terms.to = len;
+                err_span = group.span;
+            } else {
+                unreachable!("group 'or' found at index {group}")
+            };
+            self.err_unterminated(err_span);
+        });
+    }
+    fn list(&mut self) -> (usize, TSpan) {
+        // TODO: consider moving groups & ors to self
+        let first = self.terms.len();
+        let mut token = self.lex_until_non_wc();
+        let mut groups = Vec::new();
+        let mut ors = Vec::new();
+        let (span, eof) = loop {
             let span = self.span(token);
             match token.kind {
-                OpenParen => match self.expr(self.token_pos(), parens + 1) {
-                    Correct(expr) => list.terms.push(Term::Group(expr)),
-                    InputEnd => return Filtered::InputEnd,
-                    Other(_) => (),
-                },
-                CloseParen if parens != 0 => break (span, true),
-                Ident | RawIdent if self.slice(span) == "or" => {
-                    list.reset_span(BSpan::new(open, span.to));
-                    parts.push((Delim::Or, list));
-                    list = List::new(BSpan::new(open, open));
+                // TODO: consider adding error/diagnostic for open braces
+                CloseBrace => break (span, false),
+                Eof => break (span, true),
+                OpenParen => {
+                    groups.push(self.terms.len());
+                    self.terms
+                        .push(Term::Group(List::new(span, TSpan::empty(self.terms.len()))));
                 }
-                Ident | RawIdent => list.terms.push(Term::Ident(span)),
-                Dollar => match self.ident() {
-                    Correct(BSpan { to, .. }) => list.terms.push(Term::Meta(span.to(to))),
-                    InputEnd => return InputEnd,
-                    Other(next) => {
-                        token = next;
+                CloseParen if !groups.is_empty() => {
+                    self.pop_group(&mut ors, &mut groups, span.to);
+                }
+                Ident if self.slice(span) == "or" => {
+                    self.handle_or(&mut ors, &mut groups);
+                    ors.push(self.terms.len());
+                    self.terms
+                        .push(Term::Or(List::new(span, TSpan::empty(self.terms.len()))));
+                }
+                Ident => self.terms.push(Term::Ident(span)),
+                Dollar => match self.ident().map(|s| s.to) {
+                    Ok(to) => self.terms.push(Term::Ident(span.to(to))),
+                    Err(other) => {
+                        token = other;
                         continue;
                     }
                 },
-                Literal { kind, .. } => {
-                    if !kind.is_string() {
-                        self.push_err((InvalidLiteral::Numeric, span));
-                    } else if !kind.terminated() {
-                        list.terms.push(Term::Literal(span));
-                        self.push_err((InvalidLiteral::Unterminated, span));
-                    } else {
-                        list.terms.push(Term::Literal(span));
+                Literal { kind, .. } if kind.is_string() => {
+                    if !kind.terminated() {
+                        self.push_err((InvalidLiteral::Unterminated, span))
                     }
+                    self.terms.push(Term::Literal(span));
                 }
-                CloseBrace => break (span, false),
-                Eof => {
-                    (0..parens).for_each(|_| self.err_unterminated(span));
-                    self.err_expected(span, [CloseBrace]);
-                    return InputEnd;
-                }
-                _ => self.err_expected(span, EXPR_EXPECTED),
+                Literal { .. } => self.push_err((InvalidLiteral::Numeric, span)),
+                _ => self.err_expected(span, LIST_EXPECTED),
             }
-            match self.lex_until_non_wc() {
-                Some(next) => token = next,
-                None => return InputEnd,
-            };
+            token = self.lex_until_non_wc();
         };
-        if !paren && parens != 0 {
-            self.err_unterminated(span);
+        // self.pop_group(&mut ors, &mut groups);
+        self.handle_or(&mut ors, &mut groups);
+        self.handle_unclosed(groups, span);
+        if eof {
+            self.err_expected(span, [CloseBrace]);
         }
-        let span = BSpan::new(open, self.token_pos() + 1);
-        list.reset_span(span);
-        parts.push((Delim::Or, list));
-        Expression { span, parts }.into()
+        (span.to, (first, self.terms.len()).into())
     }
-
-    fn ident(&mut self) -> Filtered<BSpan> {
-        look_for!(match (self, token, [Ident, RawIdent]) {
-            Ident | RawIdent => break self.span(token).into(),
-        })
+    fn ident(&mut self) -> Result<BSpan, Lexeme> {
+        let token = self.lex_until_non_wc();
+        if let Ident | RawIdent = token.kind {
+            Ok(self.span(token))
+        } else {
+            self.err_expected(self.span(token), [Ident]);
+            Err(token)
+        }
     }
-
     /// `X` = Eof, `Y` = Dollar, `Z` = Ident
     ///
     /// Runs until one of the above is found
@@ -264,6 +295,8 @@ use Either::*;
 use Either3::*;
 use Filtered::*;
 
+// TODO: retire the below
+
 macro_rules! look_for {
     (match ($this:ident, $lex:ident, $expected: expr $(, $span:ident)?) {
         $($matcher:pat $(if $pred:expr)? => $result:expr $(,)?)*
@@ -285,3 +318,5 @@ macro_rules! look_for {
 }
 
 use look_for;
+
+// use self::token::LiteralGroup;

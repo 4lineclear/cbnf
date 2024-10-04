@@ -35,6 +35,8 @@ pub enum Either3<X, Y, Z> {
     Z(Z),
 }
 
+// TODO: consider turning filtered into a Result<T, Option<Lexeme>>
+
 /// A filtered [`lex::Lexeme`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Filtered<T> {
