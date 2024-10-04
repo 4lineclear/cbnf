@@ -2,8 +2,6 @@
 
 use std::ops::Range;
 
-// TODO: consider renaping BSpan & TSpan
-
 /// A byte span
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BSpan {
@@ -97,7 +95,8 @@ impl TSpan {
     pub const fn new(from: usize, to: usize) -> Self {
         Self { from, to }
     }
-    pub fn range(&self) -> Range<usize> {
+    #[must_use]
+    pub const fn range(&self) -> Range<usize> {
         self.from..self.to
     }
 }

@@ -1,76 +1,7 @@
 use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
-use Either::*;
-use Filtered::*;
-
 use crate::lexer::Lexeme;
 use crate::span::BSpan;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Either<A, B> {
-    A(A),
-    B(B),
-}
-
-impl<A, B> Either<A, B> {
-    pub fn map_a<C>(self, map: impl Fn(A) -> C) -> Either<C, B> {
-        match self {
-            A(a) => Either::A(map(a)),
-            B(b) => Either::B(b),
-        }
-    }
-
-    pub fn map_b<C>(self, map: impl Fn(B) -> C) -> Either<A, C> {
-        match self {
-            A(a) => Either::A(a),
-            B(b) => Either::B(map(b)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Either3<X, Y, Z> {
-    X(X),
-    Y(Y),
-    Z(Z),
-}
-
-// TODO: consider turning filtered into a Result<T, Option<Lexeme>>
-
-/// A filtered [`lex::Lexeme`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Filtered<T> {
-    InputEnd,
-    Correct(T),
-    /// !(`Whitespace` | `Eof` | `Correct(T)`)
-    Other(Lexeme),
-}
-
-impl<T> Filtered<T> {
-    pub fn map<T2>(self, map: impl FnOnce(T) -> T2) -> Filtered<T2> {
-        match self {
-            InputEnd => InputEnd,
-            Correct(t) => map(t).into(),
-            Other(t) => Other(t),
-        }
-    }
-
-    pub const fn is_correct(&self) -> bool {
-        matches!(self, Correct(_))
-    }
-    pub fn opt(self) -> Option<T> {
-        match self {
-            InputEnd | Other(_) => None,
-            Correct(t) => Some(t),
-        }
-    }
-}
-
-impl<T> From<T> for Filtered<T> {
-    fn from(value: T) -> Self {
-        Correct(value)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AsStr<'a> {

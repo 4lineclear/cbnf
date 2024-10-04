@@ -21,6 +21,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[allow(dead_code)]
     fn lex_non_wc(&mut self) -> Option<Lexeme> {
         let token = self.cursor.advance();
         (!self.handle_wc(token)).then_some(token)
@@ -78,25 +79,17 @@ impl<'a> Parser<'a> {
         }
     }
     #[must_use]
-    pub const fn token_pos(&self) -> usize {
+    const fn token_pos(&self) -> usize {
         self.cursor.lex_pos()
     }
     #[must_use]
     const fn token_span(&self, len: usize) -> BSpan {
         BSpan::new(self.token_pos(), self.token_pos() + len)
     }
-    fn handle_other<T>(
-        &mut self,
-        token: Lexeme,
-        expected: impl Into<Box<[LexKind]>>,
-    ) -> Filtered<T> {
-        self.err_expected(token, expected);
-        Other(token)
-    }
 }
 
-pub const LIST_EXPECTED: [LexKind; 5] = [OpenParen, Ident, RawIdent, LITERAL, CloseBrace];
-pub const RULE_EXPECTED: [LexKind; 3] = [Dollar, Ident, RawIdent];
+pub const LIST_EXPECTED: [LexKind; 4] = [OpenParen, Ident, LITERAL, CloseBrace];
+pub const RULE_EXPECTED: [LexKind; 2] = [Dollar, Ident];
 
 impl<'a> Parser<'a> {
     #[must_use]
@@ -112,22 +105,21 @@ impl<'a> Parser<'a> {
 
     #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
-        let (name, open) = match self.until_dollar_or_ident() {
-            X(()) => return None,
-            Y(pos) => {
-                let ident = self.ident().ok()?;
-                let semi = self.semi_or_open_brace().opt()?;
-                let span = ident.from(pos);
-                if semi {
-                    return Some(Rule {
-                        name: span,
-                        expr: None,
-                        span,
-                    });
-                }
-                (span, self.token_pos())
+        let (name, open) = if let Some(span) = self.until_dollar_or_ident()? {
+            (span, self.open_brace()?)
+        } else {
+            let dollar = self.token_pos();
+            let ident = self.ident().ok()?;
+            let semi = self.semi_or_open_brace()?;
+            let span = ident.from(dollar);
+            if semi {
+                return Some(Rule {
+                    name: span,
+                    expr: None,
+                    span,
+                });
             }
-            Z(span) => (span, self.open_brace().opt().map(|()| self.token_pos())?),
+            (span, self.token_pos())
         };
         let (close, terms) = self.list();
         let span = name.to(self.cursor.pos());
@@ -141,7 +133,58 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn handle_or(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>) -> bool {
+    fn list(&mut self) -> (usize, TSpan) {
+        let first = self.terms.len();
+        let mut token = self.lex_until_non_wc();
+        let mut groups = Vec::new();
+        let mut ors = Vec::new();
+        let (span, eof) = loop {
+            let span = self.span(token);
+            match token.kind {
+                CloseBrace => break (span, false),
+                Eof => break (span, true),
+                OpenParen => {
+                    groups.push(self.terms.len());
+                    self.terms
+                        .push(Term::Group(List::new(span, TSpan::empty(self.terms.len()))));
+                }
+                CloseParen if !groups.is_empty() => {
+                    self.pop_group(&mut ors, &mut groups, span.to);
+                }
+                Ident if self.slice(span) == "or" => {
+                    self.handle_or(&mut ors, &groups);
+                    ors.push(self.terms.len());
+                    self.terms
+                        .push(Term::Or(List::new(span, TSpan::empty(self.terms.len()))));
+                }
+                Ident => self.terms.push(Term::Ident(span)),
+                Dollar => match self.ident().map(|s| s.to) {
+                    Ok(to) => self.terms.push(Term::Ident(span.to(to))),
+                    Err(other) => {
+                        token = other;
+                        continue;
+                    }
+                },
+                Literal { kind, .. } if kind.is_string() => {
+                    if !kind.terminated() {
+                        self.push_err((InvalidLiteral::Unterminated, span));
+                    }
+                    self.terms.push(Term::Literal(span));
+                }
+                Literal { .. } => self.push_err((InvalidLiteral::Numeric, span)),
+                _ => self.err_expected(span, LIST_EXPECTED),
+            }
+            token = self.lex_until_non_wc();
+        };
+        self.handle_or(&mut ors, &groups);
+        self.handle_unclosed(groups, span);
+        if eof {
+            self.err_expected(span, [CloseBrace]);
+        }
+        (span.to, (first, self.terms.len()).into())
+    }
+
+    fn handle_or(&mut self, ors: &mut Vec<usize>, groups: &[usize]) -> bool {
         let (or, _) = match ors.last().zip(groups.last()) {
             Some((&o, &g)) if o < g => (o, g),
             _ => return false,
@@ -158,6 +201,7 @@ impl<'a> Parser<'a> {
         ors.pop();
         true
     }
+
     fn pop_group(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>, to: usize) {
         let Some(&group) = groups.last() else { return };
         let len = self.terms.len();
@@ -171,8 +215,9 @@ impl<'a> Parser<'a> {
         while self.handle_or(ors, groups) {}
         groups.pop();
     }
+
     fn handle_unclosed(&mut self, groups: Vec<usize>, span: BSpan) {
-        groups.into_iter().for_each(|group| {
+        for group in groups {
             let err_span;
             let len = self.terms.len();
             if let Term::Group(group) = &mut self.terms[group] {
@@ -183,99 +228,56 @@ impl<'a> Parser<'a> {
                 unreachable!("group 'or' found at index {group}")
             };
             self.err_unterminated(err_span);
-        });
-    }
-    fn list(&mut self) -> (usize, TSpan) {
-        // TODO: consider moving groups & ors to self
-        let first = self.terms.len();
-        let mut token = self.lex_until_non_wc();
-        let mut groups = Vec::new();
-        let mut ors = Vec::new();
-        let (span, eof) = loop {
-            let span = self.span(token);
-            match token.kind {
-                // TODO: consider adding error/diagnostic for open braces
-                CloseBrace => break (span, false),
-                Eof => break (span, true),
-                OpenParen => {
-                    groups.push(self.terms.len());
-                    self.terms
-                        .push(Term::Group(List::new(span, TSpan::empty(self.terms.len()))));
-                }
-                CloseParen if !groups.is_empty() => {
-                    self.pop_group(&mut ors, &mut groups, span.to);
-                }
-                Ident if self.slice(span) == "or" => {
-                    self.handle_or(&mut ors, &mut groups);
-                    ors.push(self.terms.len());
-                    self.terms
-                        .push(Term::Or(List::new(span, TSpan::empty(self.terms.len()))));
-                }
-                Ident => self.terms.push(Term::Ident(span)),
-                Dollar => match self.ident().map(|s| s.to) {
-                    Ok(to) => self.terms.push(Term::Ident(span.to(to))),
-                    Err(other) => {
-                        token = other;
-                        continue;
-                    }
-                },
-                Literal { kind, .. } if kind.is_string() => {
-                    if !kind.terminated() {
-                        self.push_err((InvalidLiteral::Unterminated, span))
-                    }
-                    self.terms.push(Term::Literal(span));
-                }
-                Literal { .. } => self.push_err((InvalidLiteral::Numeric, span)),
-                _ => self.err_expected(span, LIST_EXPECTED),
-            }
-            token = self.lex_until_non_wc();
-        };
-        // self.pop_group(&mut ors, &mut groups);
-        self.handle_or(&mut ors, &mut groups);
-        self.handle_unclosed(groups, span);
-        if eof {
-            self.err_expected(span, [CloseBrace]);
         }
-        (span.to, (first, self.terms.len()).into())
     }
+
     fn ident(&mut self) -> Result<BSpan, Lexeme> {
         let token = self.lex_until_non_wc();
-        if let Ident | RawIdent = token.kind {
+        if let Ident = token.kind {
             Ok(self.span(token))
         } else {
             self.err_expected(self.span(token), [Ident]);
             Err(token)
         }
     }
+
     /// `X` = Eof, `Y` = Dollar, `Z` = Ident
     ///
     /// Runs until one of the above is found
-    fn until_dollar_or_ident(&mut self) -> Either3<(), usize, BSpan> {
+    fn until_dollar_or_ident(&mut self) -> Option<Option<BSpan>> {
         loop {
-            match look_for!(match (self, token, [Dollar, Ident, RawIdent]) {
-                Dollar => break Y(self.token_pos()).into(),
-                Ident | RawIdent => break Z(self.span(token)).into(),
-                Eof => break InputEnd,
-            }) {
-                InputEnd => return X(()),
-                Correct(span) => break span,
-                Other(_) => (),
-            }
+            let token = self.lex_until_non_wc();
+            match token.kind {
+                Dollar => break Some(None),
+                Ident => break Some(Some(self.span(token))),
+                Eof => return None,
+                _ => self.err_expected(token, [Dollar, Ident]),
+            };
         }
     }
+
     /// `A` = Semi, `B` = Brace
-    fn open_brace(&mut self) -> Filtered<()> {
-        look_for!(match (self, token, [OpenBrace]) {
-            OpenBrace => break ().into(),
-        })
+    fn open_brace(&mut self) -> Option<usize> {
+        let token = self.lex_until_non_wc();
+        if OpenBrace == token.kind {
+            Some(self.token_pos())
+        } else {
+            self.err_expected(token, [OpenBrace]);
+            None
+        }
     }
 
     /// `true` if semi else `false`
-    fn semi_or_open_brace(&mut self) -> Filtered<bool> {
-        look_for!(match (self, token, [Semi, OpenBrace]) {
-            Semi => break true.into(),
-            OpenBrace => break false.into(),
-        })
+    fn semi_or_open_brace(&mut self) -> Option<bool> {
+        let token = self.lex_until_non_wc();
+        match token.kind {
+            Semi => true.into(),
+            OpenBrace => false.into(),
+            _ => {
+                self.err_expected(token, [Semi, OpenBrace]);
+                None
+            }
+        }
     }
 }
 
@@ -289,34 +291,3 @@ const LITERAL: LexKind = LexKind::Literal {
 
 #[allow(dead_code)]
 const LINE_COMMENT: LexKind = LexKind::LineComment { doc_style: None };
-
-#[allow(unused)]
-use Either::*;
-use Either3::*;
-use Filtered::*;
-
-// TODO: retire the below
-
-macro_rules! look_for {
-    (match ($this:ident, $lex:ident, $expected: expr $(, $span:ident)?) {
-        $($matcher:pat $(if $pred:expr)? => $result:expr $(,)?)*
-    }) => {{
-        use LexKind::*;
-        loop {
-            let Some($lex) = $this.lex_non_wc() else {
-                continue;
-            };
-            #[allow(unused)]
-            $(let $span = $this.span($lex);)?
-            match $lex.kind {
-                $($matcher $(if $pred)? => $result,)*
-                #[allow(unreachable_patterns)]
-                _ => break $this.handle_other($lex, $expected)
-            }
-        }
-    }};
-}
-
-use look_for;
-
-// use self::token::LiteralGroup;

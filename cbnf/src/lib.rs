@@ -1,4 +1,4 @@
-// #![allow(clippy::wildcard_imports)]
+#![allow(clippy::option_option)]
 use crate::{
     parser::{error::Error, Parser},
     span::{BSpan, TSpan},
@@ -10,14 +10,13 @@ pub mod span;
 pub mod util;
 
 // TODO: resolve rule names.
-//
-// TODO: remove all raw idents
 
 #[derive(Clone, Debug)]
 pub struct Comment(BSpan);
 
 impl Comment {
-    pub fn b_span(&self) -> BSpan {
+    #[must_use]
+    pub const fn span(&self) -> BSpan {
         self.0
     }
 }
@@ -28,10 +27,12 @@ pub struct DocComment(DocStyle, BSpan);
 pub use crate::lexer::DocStyle;
 
 impl DocComment {
-    pub fn style(&self) -> DocStyle {
+    #[must_use]
+    pub const fn style(&self) -> DocStyle {
         self.0
     }
-    pub fn b_span(&self) -> BSpan {
+    #[must_use]
+    pub const fn span(&self) -> BSpan {
         self.1
     }
 }
@@ -105,25 +106,19 @@ pub struct List {
 
 impl List {
     pub(crate) const fn new(span: BSpan, terms: TSpan) -> Self {
-        Self { terms, span }
+        Self { span, terms }
     }
 
-    pub fn span(&self) -> BSpan {
+    #[must_use]
+    pub const fn span(&self) -> BSpan {
         self.span
     }
 
-    pub fn terms(&self) -> TSpan {
+    #[must_use]
+    pub const fn terms(&self) -> TSpan {
         self.terms
     }
 }
-
-// #[derive(Debug, Clone)]
-// enum ListKind {
-//     /// A list containing ors
-//     Or(Vec<usize>),
-//     /// A list without delims
-//     Group,
-// }
 
 /// A single item within a list
 #[derive(Debug, Clone, Copy)]

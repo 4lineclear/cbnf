@@ -2,8 +2,6 @@ use crate::lexer;
 use crate::span::BSpan;
 
 // TODO: add more values, etc, to errors
-//
-// TODO: consider readding Eof error
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Error {
     InvalidLit(InvalidLiteral, BSpan),
