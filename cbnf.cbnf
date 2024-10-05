@@ -3,24 +3,32 @@
 # TODO: add whitespace aware syntax
 # maybe something such as a ',' that denotes immediate tokens
 
-omment 
-    { "#" $text $EOL }
-syntax 
-    { rule syntax or nil }
-rule 
-    { ($ident or meta) "{" expr "}" or meta ";" }
-expr 
-    { list ("or" expr or nil) }
-list 
-    { term (list or nil) }
-term 
-    { literal or $ident or meta or group  }
-meta 
-    { "$" $ident }
-group 
-    { "(" expr ")" } 
-literal 
-    { '"' text '"' }
+# TODO: consider replacing 'or' with '|' to be more inline with BNF
+
+comment {
+    "#" $text $EOL 
+}
+syntax { 
+    rule syntax or nil
+}
+rule {
+    ($ident or meta) "{" list "}" or meta ";"
+}
+list {
+    term (list or nil)
+}
+term {
+    literal or $ident or meta or group 
+}
+meta {
+    "$" $ident
+}
+group {
+    "(" list ")" 
+} 
+literal {
+    '"' text '"'
+}
 
 $text; #: unicode text
 $char; #: unicode character

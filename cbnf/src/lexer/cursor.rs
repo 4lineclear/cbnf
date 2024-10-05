@@ -3,6 +3,7 @@ use std::str::Chars;
 use super::{token::LexKind, Lexeme};
 
 // PERF: Chars is slightly faster than &str
+// Also: may want to simplify closer to the og for more perf
 
 /// Peekable iterator over a char sequence.
 ///

@@ -10,6 +10,10 @@ pub mod span;
 pub mod util;
 
 // TODO: resolve rule names.
+//
+// TODO: add test coverage
+//
+// TODO: test multi or
 
 #[derive(Clone, Debug)]
 pub struct Comment(BSpan);
@@ -40,6 +44,7 @@ impl DocComment {
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {
+    // TODO: consider having this be a hashmap
     rules: Vec<Rule>,
     comments: Vec<Comment>,
     docs: Vec<DocComment>,
@@ -123,14 +128,14 @@ impl List {
 /// A single item within a list
 #[derive(Debug, Clone, Copy)]
 pub enum Term {
-    /// Or
-    Or(List),
-    /// ".."
-    Literal(BSpan),
     /// ..
     Ident(BSpan),
+    /// ".."
+    Literal(BSpan),
     /// $ ..
     Meta(BSpan),
+    /// Or
+    Or(List),
     /// ( .. )
     Group(List),
 }
