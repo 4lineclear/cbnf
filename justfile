@@ -1,5 +1,5 @@
-test:
-    cargo nextest run
+test *FLAGS:
+    cargo nextest run {{FLAGS}}
 
 md:
     mdflc ./notes/

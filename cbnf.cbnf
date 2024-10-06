@@ -3,22 +3,20 @@
 # TODO: add whitespace aware syntax
 # maybe something such as a ',' that denotes immediate tokens
 
-# TODO: consider replacing 'or' with '|' to be more inline with BNF
-
 comment {
     "#" $text $EOL 
 }
 syntax { 
-    rule syntax or nil
+    rule syntax | nil
 }
 rule {
-    ($ident or meta) "{" list "}" or meta ";"
+    ($ident | meta) "{" list "}" | meta ";"
 }
 list {
-    term (list or nil)
+    term (list | nil)
 }
 term {
-    literal or $ident or meta or group 
+    literal | $ident | meta | group 
 }
 meta {
     "$" $ident

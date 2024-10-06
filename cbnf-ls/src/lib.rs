@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Display;
 
 use cbnf::Cbnf;
@@ -24,7 +23,6 @@ pub struct Document {
     pub tokens: Cbnf,
     pub source: String,
     pub line_breaks: Vec<usize>,
-    pub rules: HashMap<String, usize>,
 }
 
 fn find_lines(source: &str) -> Vec<usize> {
@@ -54,17 +52,10 @@ impl Document {
     pub fn new(source: String) -> Self {
         let tokens = Cbnf::parse(&source);
         let line_breaks = find_lines(&source);
-        let rules = tokens
-            .rules()
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.name.slice(&source).to_owned(), i))
-            .collect();
         Self {
             tokens,
-            line_breaks,
             source,
-            rules,
+            line_breaks,
         }
     }
 
@@ -142,8 +133,8 @@ impl LanguageServer for Backend {
             .tokens
             .rules()
             .iter()
-            .map(|rule| SymbolInformation {
-                name: rule.name.slice(&doc.source).to_owned(),
+            .map(|(name, rule)| SymbolInformation {
+                name: name.to_owned(),
                 kind: SymbolKind::CLASS,
                 tags: None,
                 deprecated: None,
