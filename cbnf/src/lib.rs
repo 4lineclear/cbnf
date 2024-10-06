@@ -1,4 +1,6 @@
 #![allow(clippy::option_option)]
+use indexmap::IndexMap;
+
 use crate::{
     parser::{error::Error, Parser},
     span::{BSpan, TSpan},
@@ -44,8 +46,7 @@ impl DocComment {
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {
-    // TODO: consider having this be a hashmap
-    rules: Vec<Rule>,
+    rules: IndexMap<String, Rule>,
     comments: Vec<Comment>,
     docs: Vec<DocComment>,
     errors: Vec<Error>,
@@ -54,7 +55,12 @@ pub struct Cbnf {
 
 impl From<Parser<'_>> for Cbnf {
     fn from(mut value: Parser<'_>) -> Self {
-        let rules = core::iter::from_fn(|| value.next_rule()).collect();
+        let rules = core::iter::from_fn(|| {
+            value
+                .next_rule()
+                .map(|r| (value.slice(r.name).to_owned(), r))
+        })
+        .collect();
         Self {
             rules,
             comments: value.comments,
@@ -67,7 +73,7 @@ impl From<Parser<'_>> for Cbnf {
 
 impl Cbnf {
     #[must_use]
-    pub fn rules(&self) -> &[Rule] {
+    pub const fn rules(&self) -> &IndexMap<String, Rule> {
         &self.rules
     }
     #[must_use]
@@ -147,6 +153,14 @@ impl Term {
         match self {
             Literal(span) | Ident(span) | Meta(span) => *span,
             Or(list) | Group(list) => list.span,
+        }
+    }
+    #[must_use]
+    pub const fn terms(&self) -> Option<TSpan> {
+        use Term::*;
+        match self {
+            Or(list) | Group(list) => Some(list.terms),
+            Literal(_) | Ident(_) | Meta(_) => None,
         }
     }
 }

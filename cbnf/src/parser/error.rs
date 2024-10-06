@@ -1,6 +1,8 @@
 use crate::lexer;
 use crate::span::BSpan;
 
+// TODO: consider having expected be a nested list of Lexemes
+
 // TODO: add more values, etc, to errors
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Error {

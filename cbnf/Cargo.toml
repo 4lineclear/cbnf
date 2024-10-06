@@ -10,9 +10,12 @@ unicode-normalization = "0.1"
 unicode-properties = "0.1"
 # ustr = "1.0"
 
+# etc
+indexmap = "2.6"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
-expect-test = "1.5.0"
+expect-test = "1.5"
 
 [lints]
 workspace = true

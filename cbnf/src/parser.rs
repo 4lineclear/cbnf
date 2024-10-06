@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub const LIST_EXPECTED: [LexKind; 4] = [OpenParen, Ident, LITERAL, CloseBrace];
+pub const LIST_EXPECTED: [LexKind; 5] = [OpenParen, Ident, Or, LITERAL, CloseBrace];
 pub const RULE_EXPECTED: [LexKind; 2] = [Dollar, Ident];
 
 impl<'a> Parser<'a> {
@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
                 CloseParen if !groups.is_empty() => {
                     self.pop_group(&mut ors, &mut groups, span.to);
                 }
-                Ident if self.slice(span) == "or" => {
+                Or => {
                     self.handle_or(&mut ors, &groups);
                     ors.push(self.terms.len());
                     self.terms
@@ -172,6 +172,8 @@ impl<'a> Parser<'a> {
                     self.terms.push(Term::Literal(span));
                 }
                 Literal { .. } => self.push_err((InvalidLiteral::Numeric, span)),
+                // TODO: also add a CloseParen item to the EXPECTED when there
+                // are unclosed groups
                 _ => self.err_expected(span, LIST_EXPECTED),
             }
             token = self.lex_until_non_wc();
@@ -181,23 +183,24 @@ impl<'a> Parser<'a> {
         if eof {
             self.err_expected(span, [CloseBrace]);
         }
+        assert!(ors.is_empty(), "or backlog not empty: {ors:#?}");
         (span.to, (first, self.terms.len()).into())
     }
 
+    // TODO: bspan.to may not be going to the last byte(close paren) of a group.
     fn handle_or(&mut self, ors: &mut Vec<usize>, groups: &[usize]) -> bool {
-        let (or, _) = match ors.last().zip(groups.last()) {
-            Some((&o, &g)) if o < g => (o, g),
+        let or = match (ors.last(), groups.last()) {
+            (Some(&o), Some(&g)) if o > g => o,
+            (Some(&o), None) => o,
             _ => return false,
         };
         let len = self.terms.len();
-        let span_to = self.terms[len - 1].span().to;
-        match &mut self.terms[or] {
-            Term::Or(list) => {
-                list.terms.to = len;
-                list.span.to = span_to;
-            }
-            _ => unreachable!("non 'or' found at index {or}"),
-        }
+        let to = self.terms[len - 1].span().to;
+        let Term::Or(list) = &mut self.terms[or] else {
+            unreachable!("non 'or' found at index {or}")
+        };
+        list.terms.to = len;
+        list.span.to = to;
         ors.pop();
         true
     }
@@ -205,15 +208,17 @@ impl<'a> Parser<'a> {
     fn pop_group(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>, to: usize) {
         let Some(&group) = groups.last() else { return };
         let len = self.terms.len();
-        match &mut self.terms[group] {
-            Term::Group(list) => {
-                list.terms.to = len;
-                list.span.to = to;
-            }
-            _ => unreachable!("group 'or' found at index {group}"),
-        }
-        while self.handle_or(ors, groups) {}
+        if let Term::Group(list) = &mut self.terms[group] {
+            list.terms.to = len;
+            list.span.to = to;
+        } else {
+            unreachable!("group 'or' found at index {group}")
+        };
         groups.pop();
+        while self.handle_or(ors, groups) {}
+        if let Some(Term::Or(or)) = self.terms.get_mut(group.saturating_sub(1)) {
+            or.span.to = to;
+        }
     }
 
     fn handle_unclosed(&mut self, groups: Vec<usize>, span: BSpan) {
