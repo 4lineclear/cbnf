@@ -4,31 +4,39 @@
 # maybe something such as a ',' that denotes immediate tokens
 
 comment {
-    "#" $text $EOL 
+    '#' $text ($EOL | $EOF)
 }
 syntax { 
     rule syntax | nil
 }
 rule {
-    ($ident | meta) "{" list "}" | meta ";"
+    ($ident | meta) '{' list '}' | meta ';'
 }
 list {
     term (list | nil)
 }
 term {
-    literal | $ident | meta | group 
+    literal | char | $ident | meta | group | "nil"
 }
 meta {
-    "$" $ident
+    '$' $ident
 }
 group {
-    "(" list ")" 
+    '(' list ')'
 } 
 literal {
-    '"' text '"'
+    '"' $text '"'
+}
+char {
+    '\'' $char '\''
 }
 
 $text; #: unicode text
 $char; #: unicode character
 $ident; #: XID_Start XID_Continue* | "_" XID_Continue+
 $EOL;
+$EOF;
+
+# TODO: add another byte
+
+# TODO: add integers,floats and multiplication

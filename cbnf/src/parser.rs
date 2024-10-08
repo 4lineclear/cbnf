@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use crate::{
     lexer::{Base, Cursor, LexKind, LiteralKind, *},
     parser::error::{Error, InvalidLiteral},
@@ -79,11 +80,11 @@ impl<'a> Parser<'a> {
         }
     }
     #[must_use]
-    const fn token_pos(&self) -> usize {
+    const fn token_pos(&self) -> u32 {
         self.cursor.lex_pos()
     }
     #[must_use]
-    const fn token_span(&self, len: usize) -> BSpan {
+    const fn token_span(&self, len: u32) -> BSpan {
         BSpan::new(self.token_pos(), self.token_pos() + len)
     }
 }
@@ -133,8 +134,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn list(&mut self) -> (usize, TSpan) {
-        let first = self.terms.len();
+    fn list(&mut self) -> (u32, TSpan) {
+        let first = self.terms.len() as u32;
         let mut token = self.lex_until_non_wc();
         let mut groups = Vec::new();
         let mut ors = Vec::new();
@@ -144,18 +145,22 @@ impl<'a> Parser<'a> {
                 CloseBrace => break (span, false),
                 Eof => break (span, true),
                 OpenParen => {
-                    groups.push(self.terms.len());
-                    self.terms
-                        .push(Term::Group(List::new(span, TSpan::empty(self.terms.len()))));
+                    groups.push(self.terms.len() as u32);
+                    self.terms.push(Term::Group(List::new(
+                        span,
+                        TSpan::empty(self.terms.len() as u32),
+                    )));
                 }
                 CloseParen if !groups.is_empty() => {
                     self.pop_group(&mut ors, &mut groups, span.to);
                 }
                 Or => {
                     self.handle_or(&mut ors, &groups);
-                    ors.push(self.terms.len());
-                    self.terms
-                        .push(Term::Or(List::new(span, TSpan::empty(self.terms.len()))));
+                    ors.push(self.terms.len() as u32);
+                    self.terms.push(Term::Or(List::new(
+                        span,
+                        TSpan::empty(self.terms.len() as u32),
+                    )));
                 }
                 Ident => self.terms.push(Term::Ident(span)),
                 Dollar => match self.ident().map(|s| s.to) {
@@ -184,11 +189,11 @@ impl<'a> Parser<'a> {
             self.err_expected(span, [CloseBrace]);
         }
         assert!(ors.is_empty(), "or backlog not empty: {ors:#?}");
-        (span.to, (first, self.terms.len()).into())
+        (span.to, (first, self.terms.len() as u32).into())
     }
 
     // TODO: bspan.to may not be going to the last byte(close paren) of a group.
-    fn handle_or(&mut self, ors: &mut Vec<usize>, groups: &[usize]) -> bool {
+    fn handle_or(&mut self, ors: &mut Vec<u32>, groups: &[u32]) -> bool {
         let or = match (ors.last(), groups.last()) {
             (Some(&o), Some(&g)) if o > g => o,
             (Some(&o), None) => o,
@@ -196,38 +201,38 @@ impl<'a> Parser<'a> {
         };
         let len = self.terms.len();
         let to = self.terms[len - 1].span().to;
-        let Term::Or(list) = &mut self.terms[or] else {
+        let Term::Or(list) = &mut self.terms[or as usize] else {
             unreachable!("non 'or' found at index {or}")
         };
-        list.terms.to = len;
+        list.terms.to = len as u32;
         list.span.to = to;
         ors.pop();
         true
     }
 
-    fn pop_group(&mut self, ors: &mut Vec<usize>, groups: &mut Vec<usize>, to: usize) {
+    fn pop_group(&mut self, ors: &mut Vec<u32>, groups: &mut Vec<u32>, to: u32) {
         let Some(&group) = groups.last() else { return };
         let len = self.terms.len();
-        if let Term::Group(list) = &mut self.terms[group] {
-            list.terms.to = len;
+        if let Term::Group(list) = &mut self.terms[group as usize] {
+            list.terms.to = len as u32;
             list.span.to = to;
         } else {
             unreachable!("group 'or' found at index {group}")
         };
         groups.pop();
         while self.handle_or(ors, groups) {}
-        if let Some(Term::Or(or)) = self.terms.get_mut(group.saturating_sub(1)) {
+        if let Some(Term::Or(or)) = self.terms.get_mut(group.saturating_sub(1) as usize) {
             or.span.to = to;
         }
     }
 
-    fn handle_unclosed(&mut self, groups: Vec<usize>, span: BSpan) {
+    fn handle_unclosed(&mut self, groups: Vec<u32>, span: BSpan) {
         for group in groups {
             let err_span;
             let len = self.terms.len();
-            if let Term::Group(group) = &mut self.terms[group] {
+            if let Term::Group(group) = &mut self.terms[group as usize] {
                 group.span.to = span.to;
-                group.terms.to = len;
+                group.terms.to = len as u32;
                 err_span = group.span;
             } else {
                 unreachable!("group 'or' found at index {group}")
@@ -262,7 +267,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `A` = Semi, `B` = Brace
-    fn open_brace(&mut self) -> Option<usize> {
+    fn open_brace(&mut self) -> Option<u32> {
         let token = self.lex_until_non_wc();
         if OpenBrace == token.kind {
             Some(self.token_pos())

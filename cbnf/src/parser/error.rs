@@ -13,6 +13,37 @@ pub enum Error {
 
 impl Error {
     /// `Some(error)` means a non congregated error
+    pub fn span(&self) -> BSpan {
+        match self {
+            Error::InvalidLit(_, span) | Error::Unterminated(span) | Error::Expected(span, _) => {
+                *span
+            }
+        }
+    }
+    pub fn message(&self) -> String {
+        match self {
+            Error::InvalidLit(lit, _) => match lit {
+                InvalidLiteral::Numeric => "Numbers not allowed",
+                InvalidLiteral::Unterminated => "Unterminated terminal found",
+            }
+            .into(),
+            Error::Unterminated(_) => "Group not terminated".into(),
+            Error::Expected(_, acc) => {
+                if acc.len() == 0 {
+                    return "Token not expected".into();
+                }
+                let mut o = String::from("Token not expected, expected one of: [ ");
+                o.push_str(acc[0].name());
+                for l in acc[1..].iter() {
+                    o.push_str(", ");
+                    o.push_str(l.name());
+                }
+                o.push_str(" ]");
+                o
+            }
+        }
+    }
+    /// `Some(error)` means a non congregated error
     pub fn congregate(&mut self, other: Self) -> Option<Self> {
         // NOTE: only Expected errors are congregated currently,
         // in the future when more errors are supported,

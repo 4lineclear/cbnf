@@ -18,7 +18,7 @@ impl<'a> From<&'a str> for AsStr<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AsBSpan {
     // Current span used as start
-    Len(usize),
+    Len(u32),
     Lex(Lexeme),
     // Uses given
     Span(BSpan),
@@ -39,7 +39,7 @@ macro_rules! impl_from {
     )*};
 }
 
-impl_from!(usize, Len, Lexeme, Lex, BSpan, Span);
+impl_from!(u32, Len, Lexeme, Lex, BSpan, Span);
 
 #[must_use]
 pub const fn is_whitespace(c: char) -> bool {
@@ -64,6 +64,11 @@ pub const fn is_whitespace(c: char) -> bool {
         | '\u{2028}' // LINE SEPARATOR
         | '\u{2029}' // PARAGRAPH SEPARATOR
     )
+}
+
+#[must_use]
+pub fn valid_id(s: &str) -> bool {
+    s.chars().next().is_some_and(is_id_start) && s[1..].chars().all(is_id_continue)
 }
 
 #[must_use]

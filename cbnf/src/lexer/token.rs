@@ -6,12 +6,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Lexeme {
     pub kind: LexKind,
-    pub len: usize,
+    pub len: u32,
 }
 
 impl Lexeme {
     #[must_use]
-    pub const fn new(kind: LexKind, len: usize) -> Self {
+    pub const fn new(kind: LexKind, len: u32) -> Self {
         Self { kind, len }
     }
 }
@@ -41,7 +41,7 @@ pub enum LexKind {
     /// See [`LiteralKind`] for more details.
     Literal {
         kind: LiteralKind,
-        suffix_start: usize,
+        suffix_start: u32,
     },
 
     // One-char tokens:

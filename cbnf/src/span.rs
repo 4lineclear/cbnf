@@ -6,30 +6,30 @@ use std::ops::Range;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BSpan {
     /// inclusive
-    pub from: usize,
+    pub from: u32,
     /// exclusive
-    pub to: usize,
+    pub to: u32,
 }
 
 /// A token span
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TSpan {
     /// inclusive
-    pub from: usize,
+    pub from: u32,
     /// exclusive
-    pub to: usize,
+    pub to: u32,
 }
 
-impl From<(usize, usize)> for BSpan {
-    fn from(value: (usize, usize)) -> Self {
+impl From<(u32, u32)> for BSpan {
+    fn from(value: (u32, u32)) -> Self {
         Self {
             from: value.0,
             to: value.1,
         }
     }
 }
-impl From<(usize, usize)> for TSpan {
-    fn from(value: (usize, usize)) -> Self {
+impl From<(u32, u32)> for TSpan {
+    fn from(value: (u32, u32)) -> Self {
         Self {
             from: value.0,
             to: value.1,
@@ -39,7 +39,7 @@ impl From<(usize, usize)> for TSpan {
 
 impl BSpan {
     #[must_use]
-    pub const fn empty(i: usize) -> Self {
+    pub const fn empty(i: u32) -> Self {
         Self::new(i, i)
     }
     #[must_use]
@@ -47,28 +47,28 @@ impl BSpan {
         self.from == self.to
     }
     #[must_use]
-    pub const fn new(from: usize, to: usize) -> Self {
+    pub const fn new(from: u32, to: u32) -> Self {
         Self { from, to }
     }
     #[must_use]
-    pub const fn from_len(from: usize, len: usize) -> Self {
+    pub const fn from_len(from: u32, len: u32) -> Self {
         Self::new(from, from + len)
     }
     #[must_use]
-    pub const fn from(mut self, from: usize) -> Self {
+    pub const fn from(mut self, from: u32) -> Self {
         self.from = from;
         self
     }
 
     #[must_use]
-    pub const fn to(mut self, to: usize) -> Self {
+    pub const fn to(mut self, to: u32) -> Self {
         self.to = to;
         self
     }
 
     #[must_use]
     pub fn slice<'a>(&self, item: &'a str) -> &'a str {
-        &item[self.from..self.to]
+        &item[self.from as usize..self.to as usize]
     }
 }
 
@@ -78,25 +78,25 @@ impl TSpan {
         self.from == self.to
     }
     #[must_use]
-    pub const fn empty(i: usize) -> Self {
+    pub const fn empty(i: u32) -> Self {
         Self::new(i, i)
     }
     #[must_use]
-    pub const fn from(mut self, from: usize) -> Self {
+    pub const fn from(mut self, from: u32) -> Self {
         self.from = from;
         self
     }
     #[must_use]
-    pub const fn to(mut self, to: usize) -> Self {
+    pub const fn to(mut self, to: u32) -> Self {
         self.to = to;
         self
     }
     #[must_use]
-    pub const fn new(from: usize, to: usize) -> Self {
+    pub const fn new(from: u32, to: u32) -> Self {
         Self { from, to }
     }
     #[must_use]
     pub const fn range(&self) -> Range<usize> {
-        self.from..self.to
+        self.from as usize..self.to as usize
     }
 }

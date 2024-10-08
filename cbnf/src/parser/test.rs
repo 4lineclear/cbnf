@@ -33,7 +33,7 @@ fn cbnf_print(src: &str, cbnf: &Cbnf) -> String {
         })
         .flat_map(|l| {
             println!("expr: {}", l.span.slice(src));
-            cbnf.terms(l.terms)
+            cbnf.terms_at(l.terms)
         })
         .for_each(|t| println!("term: {}", t.span().slice(src)));
     bytes + &terms
@@ -51,7 +51,7 @@ fn rule_print(bytes: &mut String, terms: &mut String, rule: &Rule, cbnf: &Cbnf) 
 fn list_print(bytes: &mut String, terms: &mut String, list: &List, cbnf: &Cbnf) {
     list.span.write(bytes);
     list.terms.write(terms);
-    cbnf.terms(list.terms).iter().for_each(|term| {
+    cbnf.terms_at(list.terms).iter().for_each(|term| {
         term.span().write(bytes);
         term.terms().inspect(|t| t.write(terms));
     });

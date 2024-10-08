@@ -43,6 +43,8 @@ impl DocComment {
     }
 }
 
+// TODO: record duplicates
+
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {
@@ -93,7 +95,11 @@ impl Cbnf {
         Self::from(Parser::new(input))
     }
     #[must_use]
-    pub fn terms(&self, span: TSpan) -> &[Term] {
+    pub fn terms(&self) -> &[Term] {
+        &self.terms
+    }
+    #[must_use]
+    pub fn terms_at(&self, span: TSpan) -> &[Term] {
         &self.terms[span.range()]
     }
 }
@@ -138,8 +144,6 @@ pub enum Term {
     Ident(BSpan),
     /// ".."
     Literal(BSpan),
-    /// $ ..
-    Meta(BSpan),
     /// Or
     Or(List),
     /// ( .. )
@@ -151,7 +155,7 @@ impl Term {
     pub const fn span(&self) -> BSpan {
         use Term::*;
         match self {
-            Literal(span) | Ident(span) | Meta(span) => *span,
+            Literal(span) | Ident(span) => *span,
             Or(list) | Group(list) => list.span,
         }
     }
@@ -160,7 +164,7 @@ impl Term {
         use Term::*;
         match self {
             Or(list) | Group(list) => Some(list.terms),
-            Literal(_) | Ident(_) | Meta(_) => None,
+            Literal(_) | Ident(_) => None,
         }
     }
 }

@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use std::str::Chars;
 
 use super::{token::LexKind, Lexeme};
@@ -11,8 +12,8 @@ use super::{token::LexKind, Lexeme};
 /// and position can be shifted forward via `bump` method.
 #[derive(Debug)]
 pub struct Cursor<'a> {
-    pub(super) token_pos: usize,
-    len_remaining: usize,
+    pub(super) token_pos: u32,
+    len_remaining: u32,
     src: &'a str,
     chars: Chars<'a>,
     prev: char,
@@ -30,7 +31,7 @@ impl<'a> Cursor<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             token_pos: 0,
-            len_remaining: input.len(),
+            len_remaining: input.len() as u32,
             src: input,
             chars: input.chars(),
             prev: EOF_CHAR,
@@ -51,14 +52,13 @@ impl Cursor<'_> {
     }
 
     #[must_use]
-    // #[allow(clippy::cast_possible_truncation)]
-    pub fn pos(&self) -> usize {
-        self.src.len() - self.chars.as_str().len()
+    pub fn pos(&self) -> u32 {
+        (self.src.len() - self.chars.as_str().len()) as u32
     }
 
     /// the position of the start of the previous lexeme
     #[must_use]
-    pub const fn lex_pos(&self) -> usize {
+    pub const fn lex_pos(&self) -> u32 {
         self.token_pos
     }
 
@@ -119,18 +119,16 @@ impl Cursor<'_> {
 
     /// Returns amount of already consumed symbols.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn pos_within_token(&self) -> usize {
-        self.len_remaining - self.chars.as_str().len()
+    pub fn pos_within_token(&self) -> u32 {
+        self.len_remaining - self.chars.as_str().len() as u32
     }
 
     /// Resets the number of bytes consumed to 0.
     pub fn reset_pos_within_token(&mut self) {
-        self.len_remaining = self.chars.as_str().len();
+        self.len_remaining = self.chars.as_str().len() as u32;
     }
 
     /// Moves to the next character.
-    #[allow(clippy::cast_possible_truncation)]
     pub fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
         self.prev = c;

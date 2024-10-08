@@ -1,10 +1,9 @@
 use std::fmt::Display;
 
-use cbnf::Cbnf;
+use cbnf::util::valid_id;
+use cbnf::{span::BSpan, Cbnf, Rule, Term};
 use dashmap::DashMap;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer};
+use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: consider parsing newlines at a different point in the process
 // Add LSpan (Line Span) to cbnf
@@ -12,35 +11,52 @@ use tower_lsp::{Client, LanguageServer};
 // TODO: add more fail fast parsing, for eg:
 // fail fast when neither semi or brace follows a rule/meta name
 
+// TODO: hide all of the below behind another layer which can be tested
+
+// TODO: create better diagnostics
+
 #[derive(Debug)]
 pub struct Backend {
     pub client: Client,
     pub forms: DashMap<Url, Document>,
 }
 
+impl Backend {
+    fn get_doc(&self, uri: &Url) -> Result<dashmap::mapref::one::Ref<'_, Url, Document>> {
+        match self.forms.get(&uri) {
+            Some(doc) => Ok(doc),
+            _ => unknown_uri(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Document {
     pub tokens: Cbnf,
     pub source: String,
-    pub line_breaks: Vec<usize>,
+    pub line_breaks: Vec<u32>,
 }
 
-fn find_lines(source: &str) -> Vec<usize> {
-    source
-        .bytes()
-        .enumerate()
-        .filter_map(|(i, b)| (b == b'\n').then_some(i))
-        .collect()
+fn find_lines(source: &str) -> Vec<u32> {
+    let mut lines = Vec::new();
+    let mut i = 0;
+    while (i as usize) < source.len() {
+        if source.as_bytes()[i as usize] == b'\n' {
+            lines.push(i);
+        }
+        i += 1;
+    }
+    lines
 }
 
 /// returns `Some((true, ..))` if target is first line
-const fn find_line(lbs: &[usize], target: usize) -> usize {
+const fn find_line(lbs: &[u32], target: u32) -> u32 {
     let mut i = 0;
     loop {
-        if i >= lbs.len() {
+        if i as usize >= lbs.len() {
             break i;
         }
-        if lbs[i] > target {
+        if lbs[i as usize] > target {
             break i;
         }
         i += 1;
@@ -49,7 +65,7 @@ const fn find_line(lbs: &[usize], target: usize) -> usize {
 
 impl Document {
     #[must_use]
-    pub fn new(source: String) -> Self {
+    fn new(source: String) -> Self {
         let tokens = Cbnf::parse(&source);
         let line_breaks = find_lines(&source);
         Self {
@@ -59,28 +75,73 @@ impl Document {
         }
     }
 
-    fn get_location(&self, uri: Url, span: cbnf::span::BSpan) -> Location {
+    fn references<'a>(&'a self, name: &'a str) -> impl Iterator<Item = BSpan> + 'a {
+        self.tokens
+            .terms()
+            .iter()
+            .filter_map(move |t| (t.span().slice(&self.source) == name).then_some(t.span()))
+    }
+
+    fn get_rule(&self, pos: u32) -> Option<Rule> {
+        use std::cmp::Ordering::*;
+        let pos = self
+            .tokens
+            .rules()
+            .binary_search_by(|_, r| match (pos >= r.name.from, pos < r.name.to) {
+                // if the position lies within a group, go to the item within the group
+                (true, true) => Equal,
+                (true, false) => Less,
+                (false, true) => Greater,
+                (false, false) => unreachable!(),
+            })
+            .ok()?;
+        Some(self.tokens.rules()[pos])
+    }
+
+    fn get_token(&self, pos: u32) -> Option<Term> {
+        use std::cmp::Ordering::*;
+        let pos = self
+            .tokens
+            .terms()
+            .binary_search_by(|t| match (pos >= t.span().from, pos < t.span().to) {
+                // if the position lies within a group, go to the item within the group
+                (true, true) if matches!(t, Term::Or(_) | Term::Group(_)) => Less,
+                (true, true) => Equal,
+                (true, false) => Less,
+                (false, true) => Greater,
+                (false, false) => unreachable!(),
+            })
+            .ok()?;
+        Some(self.tokens.terms()[pos])
+    }
+
+    fn get_point(&self, pos: Position) -> u32 {
+        if pos.line == 0 {
+            pos.character
+        } else {
+            self.line_breaks[pos.line as usize - 1] + pos.character + 1
+        }
+    }
+
+    fn get_range(&self, span: BSpan) -> Range {
         let line_from = find_line(&self.line_breaks, span.from);
         let line_to = find_line(&self.line_breaks, span.to);
         let from = match line_from {
             0 => span.from,
-            _ => span.from - self.line_breaks[line_from - 1],
+            _ => span.from - self.line_breaks[line_from as usize - 1],
         };
         let to = match line_to {
             0 => span.to,
-            _ => span.to - self.line_breaks[line_to - 1],
+            _ => span.to - self.line_breaks[line_to as usize - 1],
         };
-        Location {
-            uri,
-            range: Range {
-                start: Position {
-                    line: u32::try_from(line_from).unwrap(),
-                    character: u32::try_from(from).unwrap().saturating_sub(1),
-                },
-                end: Position {
-                    line: u32::try_from(line_to).unwrap(),
-                    character: u32::try_from(to).unwrap().saturating_sub(1),
-                },
+        Range {
+            start: Position {
+                line: line_from,
+                character: from.saturating_sub(1),
+            },
+            end: Position {
+                line: line_to,
+                character: to.saturating_sub(1),
             },
         }
     }
@@ -100,13 +161,29 @@ impl Backend {
 
 fn capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        definition_provider: Some(OneOf::Left(true)),
         text_document_sync: Some(TextDocumentSyncKind::FULL.into()),
         document_symbol_provider: Some(OneOf::Left(true)),
+        definition_provider: Some(OneOf::Left(true)),
+        declaration_provider: Some(DeclarationCapability::Simple(true)),
+        references_provider: Some(OneOf::Left(true)),
         position_encoding: Some(PositionEncodingKind::UTF8),
+        rename_provider: Some(OneOf::Left(true)),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec!["$".into()]),
+            ..Default::default()
+        }),
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(Default::default())),
         ..Default::default()
     }
 }
+
+fn unknown_uri<T>() -> Result<T> {
+    Err(tower_lsp::jsonrpc::Error::invalid_params(
+        "unknown uri inputted",
+    ))
+}
+
+// TODO: consider returning an error on nonexistant doc uris
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -120,14 +197,162 @@ impl LanguageServer for Backend {
             }),
         })
     }
+
+    async fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReportResult> {
+        tracing::info!("{params:#?}");
+        let uri = params.text_document.uri;
+        let doc = self.get_doc(&uri)?;
+        let items = doc
+            .tokens
+            .errors()
+            .iter()
+            .map(|e| {
+                let span = e.span();
+                let range = doc.get_range(span);
+                let message = e.message();
+                Diagnostic {
+                    range,
+                    message,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        Ok(DocumentDiagnosticReportResult::Report(
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: None,
+                    items,
+                },
+            }),
+        ))
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let doc = self.get_doc(&uri)?;
+        let pos = doc.get_point(params.text_document_position.position);
+        Ok(match doc.get_token(pos) {
+            Some(Term::Literal(_)) => None,
+            _ => Some(CompletionResponse::Array(
+                doc.tokens
+                    .rules()
+                    .iter()
+                    .map(|(n, _)| CompletionItem {
+                        label: n.to_owned(),
+                        kind: Some(CompletionItemKind::CLASS),
+                        ..Default::default()
+                    })
+                    .collect(),
+            )),
+        })
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        if !valid_id(&params.new_name) {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params(
+                "Invalid Name Inputted",
+            ));
+        }
+        let uri = params.text_document_position.text_document.uri;
+        let doc = self.get_doc(&uri)?;
+        let pos = doc.get_point(params.text_document_position.position);
+        let (span, rule) = match doc.get_rule(pos) {
+            Some(r) => (r.name, true),
+            None => match doc.get_token(pos) {
+                Some(Term::Ident(span)) => (span, false),
+                _ => return Ok(None),
+            },
+        };
+        let is_meta = span
+            .slice(&doc.source)
+            .chars()
+            .next()
+            .is_some_and(|c| c == '$');
+        let mut edits: Vec<_> = doc
+            .references(span.slice(&doc.source))
+            .chain(rule.then_some(span))
+            .map(|span| TextEdit {
+                range: doc.get_range(span),
+                new_text: params.new_name.clone(),
+            })
+            .collect();
+        if is_meta {
+            for te in &mut edits {
+                te.range.start.character += 1;
+                if te.range.end.line != te.range.start.line {
+                    // NOTE: stops eol from being cut
+                    te.range.end.line = te.range.start.line;
+                    te.range.end.character = te.range.start.character + (span.to - span.from);
+                }
+            }
+        };
+        Ok(Some(WorkspaceEdit {
+            changes: Some([(uri, edits)].into()),
+            document_changes: None,
+            change_annotations: None,
+        }))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let doc = self.get_doc(&uri)?;
+        let pos = params.text_document_position.position;
+        let pos = doc.get_point(pos);
+        let span = match doc.get_rule(pos) {
+            Some(r) => r.name,
+            None => match doc.get_token(pos) {
+                Some(Term::Ident(span)) => span,
+                _ => return Ok(None),
+            },
+        };
+        let refs = doc
+            .references(span.slice(&doc.source))
+            .map(|span| Location {
+                uri: uri.clone(),
+                range: doc.get_range(span),
+            })
+            .collect();
+        Ok(Some(refs))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let doc = self.get_doc(&uri)?;
+        let pos = params.text_document_position_params.position;
+        let pos = doc.get_point(pos);
+        let Some(Term::Ident(span)) = doc.get_token(pos) else {
+            return Ok(None);
+        };
+        let Some(def) = doc.tokens.rules().get(span.slice(&doc.source)) else {
+            return Ok(None);
+        };
+        let loc = Location {
+            uri: uri.clone(),
+            range: doc.get_range(def.name),
+        };
+        Ok(Some(GotoDefinitionResponse::Scalar(loc)))
+    }
+
+    async fn goto_declaration(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        self.goto_definition(params).await
+    }
+
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let Some(doc) = self.forms.get(&params.text_document.uri) else {
-            return Ok(None);
-        };
         let uri = params.text_document.uri;
+        let doc = self.get_doc(&uri)?;
         #[allow(deprecated)]
         let items = doc
             .tokens
@@ -138,7 +363,10 @@ impl LanguageServer for Backend {
                 kind: SymbolKind::CLASS,
                 tags: None,
                 deprecated: None,
-                location: doc.get_location(uri.clone(), rule.name),
+                location: Location {
+                    uri: uri.clone(),
+                    range: doc.get_range(rule.name),
+                },
                 container_name: None,
             })
             .collect::<Vec<_>>();
