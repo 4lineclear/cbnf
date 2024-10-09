@@ -1,8 +1,5 @@
 # cbnf's self description
 
-# TODO: add whitespace aware syntax
-# maybe something such as a ',' that denotes immediate tokens
-
 comment {
     '#' $text ($EOL | $EOF)
 }
@@ -23,7 +20,7 @@ meta {
 }
 group {
     '(' list ')'
-} 
+}
 literal {
     '"' $text '"'
 }
@@ -37,6 +34,12 @@ $ident; #: XID_Start XID_Continue* | "_" XID_Continue+
 $EOL;
 $EOF;
 
+# TODO: add whitespace aware syntax
+# maybe something such as a ',' that denotes immediate tokens
+
 # TODO: add another byte
 
 # TODO: add integers,floats and multiplication
+
+# TODO: generate a parser generator from this file that is testing by 
+# parsing this file

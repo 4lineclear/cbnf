@@ -13,28 +13,29 @@ pub enum Error {
 
 impl Error {
     /// `Some(error)` means a non congregated error
-    pub fn span(&self) -> BSpan {
+    #[must_use]
+    pub const fn span(&self) -> BSpan {
         match self {
-            Error::InvalidLit(_, span) | Error::Unterminated(span) | Error::Expected(span, _) => {
-                *span
-            }
+            Self::InvalidLit(_, span) | Self::Unterminated(span) | Self::Expected(span, _) => *span,
         }
     }
+
+    #[must_use]
     pub fn message(&self) -> String {
         match self {
-            Error::InvalidLit(lit, _) => match lit {
+            Self::InvalidLit(lit, _) => match lit {
                 InvalidLiteral::Numeric => "Numbers not allowed",
                 InvalidLiteral::Unterminated => "Unterminated terminal found",
             }
             .into(),
-            Error::Unterminated(_) => "Group not terminated".into(),
-            Error::Expected(_, acc) => {
+            Self::Unterminated(_) => "Group not terminated".into(),
+            Self::Expected(_, acc) => {
                 if acc.len() == 0 {
                     return "Token not expected".into();
                 }
                 let mut o = String::from("Token not expected, expected one of: [ ");
                 o.push_str(acc[0].name());
-                for l in acc[1..].iter() {
+                for l in &acc[1..] {
                     o.push_str(", ");
                     o.push_str(l.name());
                 }

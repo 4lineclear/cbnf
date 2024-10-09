@@ -1,5 +1,7 @@
+#![allow(clippy::significant_drop_tightening)]
 use std::fmt::Display;
 
+use cbnf::indexmap::IndexMap;
 use cbnf::util::valid_id;
 use cbnf::{span::BSpan, Cbnf, Rule, Term};
 use dashmap::DashMap;
@@ -13,7 +15,16 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: hide all of the below behind another layer which can be tested
 
-// TODO: create better diagnostics
+// TODO: create better diagnostics messages, find common errors
+
+// TODO: ignore keywords (nil)
+
+// TODO: try to precompute more things
+
+// TODO: try to create a set of references at parse time
+
+// TODO: try to update the state with partial changes instead
+// of completely recomputing it each time
 
 #[derive(Debug)]
 pub struct Backend {
@@ -23,18 +34,21 @@ pub struct Backend {
 
 impl Backend {
     fn get_doc(&self, uri: &Url) -> Result<dashmap::mapref::one::Ref<'_, Url, Document>> {
-        match self.forms.get(&uri) {
-            Some(doc) => Ok(doc),
-            _ => unknown_uri(),
-        }
+        self.forms.get(uri).map_or_else(unknown_uri, Ok)
     }
 }
 
 #[derive(Debug, Default)]
 pub struct Document {
-    pub tokens: Cbnf,
-    pub source: String,
-    pub line_breaks: Vec<u32>,
+    source: String,
+    line_breaks: Vec<u32>,
+    rules: IndexMap<String, Rule>,
+    #[allow(unused)]
+    comments: Vec<cbnf::Comment>,
+    #[allow(unused)]
+    docs: Vec<cbnf::DocComment>,
+    errors: Vec<Diagnostic>,
+    terms: Vec<Term>,
 }
 
 fn find_lines(source: &str) -> Vec<u32> {
@@ -63,21 +77,56 @@ const fn find_line(lbs: &[u32], target: u32) -> u32 {
     }
 }
 
+const fn get_range(breaks: &[u32], span: BSpan) -> Range {
+    let line_from = find_line(breaks, span.from);
+    let line_to = find_line(breaks, span.to);
+    let from = match line_from {
+        0 => span.from,
+        _ => span.from - breaks[line_from as usize - 1],
+    };
+    let to = match line_to {
+        0 => span.to,
+        _ => span.to - breaks[line_to as usize - 1],
+    };
+    Range {
+        start: Position {
+            line: line_from,
+            character: from.saturating_sub(1),
+        },
+        end: Position {
+            line: line_to,
+            character: to.saturating_sub(1),
+        },
+    }
+}
+
 impl Document {
     #[must_use]
     fn new(source: String) -> Self {
         let tokens = Cbnf::parse(&source);
         let line_breaks = find_lines(&source);
+        let errors = tokens
+            .errors
+            .iter()
+            .map(|e| Diagnostic {
+                range: get_range(&line_breaks, e.span()),
+                message: e.message(),
+                ..Default::default()
+            })
+            .collect();
         Self {
-            tokens,
             source,
             line_breaks,
+            rules: tokens.rules,
+            comments: tokens.comments,
+            docs: tokens.docs,
+            terms: tokens.terms,
+            errors,
         }
     }
 
     fn references<'a>(&'a self, name: &'a str) -> impl Iterator<Item = BSpan> + 'a {
-        self.tokens
-            .terms()
+        self.terms
             .iter()
             .filter_map(move |t| (t.span().slice(&self.source) == name).then_some(t.span()))
     }
@@ -85,8 +134,7 @@ impl Document {
     fn get_rule(&self, pos: u32) -> Option<Rule> {
         use std::cmp::Ordering::*;
         let pos = self
-            .tokens
-            .rules()
+            .rules
             .binary_search_by(|_, r| match (pos >= r.name.from, pos < r.name.to) {
                 // if the position lies within a group, go to the item within the group
                 (true, true) => Equal,
@@ -95,14 +143,13 @@ impl Document {
                 (false, false) => unreachable!(),
             })
             .ok()?;
-        Some(self.tokens.rules()[pos])
+        Some(self.rules[pos])
     }
 
     fn get_token(&self, pos: u32) -> Option<Term> {
         use std::cmp::Ordering::*;
         let pos = self
-            .tokens
-            .terms()
+            .terms
             .binary_search_by(|t| match (pos >= t.span().from, pos < t.span().to) {
                 // if the position lies within a group, go to the item within the group
                 (true, true) if matches!(t, Term::Or(_) | Term::Group(_)) => Less,
@@ -112,7 +159,7 @@ impl Document {
                 (false, false) => unreachable!(),
             })
             .ok()?;
-        Some(self.tokens.terms()[pos])
+        Some(self.terms[pos])
     }
 
     fn get_point(&self, pos: Position) -> u32 {
@@ -124,26 +171,7 @@ impl Document {
     }
 
     fn get_range(&self, span: BSpan) -> Range {
-        let line_from = find_line(&self.line_breaks, span.from);
-        let line_to = find_line(&self.line_breaks, span.to);
-        let from = match line_from {
-            0 => span.from,
-            _ => span.from - self.line_breaks[line_from as usize - 1],
-        };
-        let to = match line_to {
-            0 => span.to,
-            _ => span.to - self.line_breaks[line_to as usize - 1],
-        };
-        Range {
-            start: Position {
-                line: line_from,
-                character: from.saturating_sub(1),
-            },
-            end: Position {
-                line: line_to,
-                character: to.saturating_sub(1),
-            },
-        }
+        get_range(&self.line_breaks, span)
     }
 }
 
@@ -172,7 +200,9 @@ fn capabilities() -> ServerCapabilities {
             trigger_characters: Some(vec!["$".into()]),
             ..Default::default()
         }),
-        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(Default::default())),
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+            DiagnosticOptions::default(),
+        )),
         ..Default::default()
     }
 }
@@ -202,53 +232,29 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
-        tracing::info!("{params:#?}");
-        let uri = params.text_document.uri;
-        let doc = self.get_doc(&uri)?;
-        let items = doc
-            .tokens
-            .errors()
-            .iter()
-            .map(|e| {
-                let span = e.span();
-                let range = doc.get_range(span);
-                let message = e.message();
-                Diagnostic {
-                    range,
-                    message,
-                    ..Default::default()
-                }
-            })
-            .collect();
         Ok(DocumentDiagnosticReportResult::Report(
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
                     result_id: None,
-                    items,
+                    items: self.get_doc(&params.text_document.uri)?.errors.clone(),
                 },
             }),
         ))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let doc = self.get_doc(&uri)?;
-        let pos = doc.get_point(params.text_document_position.position);
-        Ok(match doc.get_token(pos) {
-            Some(Term::Literal(_)) => None,
-            _ => Some(CompletionResponse::Array(
-                doc.tokens
-                    .rules()
-                    .iter()
-                    .map(|(n, _)| CompletionItem {
-                        label: n.to_owned(),
-                        kind: Some(CompletionItemKind::CLASS),
-                        ..Default::default()
-                    })
-                    .collect(),
-            )),
-        })
+        Ok(Some(CompletionResponse::Array(
+            self.get_doc(&params.text_document_position.text_document.uri)?
+                .rules
+                .iter()
+                .map(|(n, _)| CompletionItem {
+                    label: n.to_owned(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    ..Default::default()
+                })
+                .collect(),
+        )))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
@@ -267,11 +273,6 @@ impl LanguageServer for Backend {
                 _ => return Ok(None),
             },
         };
-        let is_meta = span
-            .slice(&doc.source)
-            .chars()
-            .next()
-            .is_some_and(|c| c == '$');
         let mut edits: Vec<_> = doc
             .references(span.slice(&doc.source))
             .chain(rule.then_some(span))
@@ -280,7 +281,7 @@ impl LanguageServer for Backend {
                 new_text: params.new_name.clone(),
             })
             .collect();
-        if is_meta {
+        if span.slice(&doc.source).starts_with('$') {
             for te in &mut edits {
                 te.range.start.character += 1;
                 if te.range.end.line != te.range.start.line {
@@ -330,7 +331,7 @@ impl LanguageServer for Backend {
         let Some(Term::Ident(span)) = doc.get_token(pos) else {
             return Ok(None);
         };
-        let Some(def) = doc.tokens.rules().get(span.slice(&doc.source)) else {
+        let Some(def) = doc.rules.get(span.slice(&doc.source)) else {
             return Ok(None);
         };
         let loc = Location {
@@ -355,8 +356,7 @@ impl LanguageServer for Backend {
         let doc = self.get_doc(&uri)?;
         #[allow(deprecated)]
         let items = doc
-            .tokens
-            .rules()
+            .rules
             .iter()
             .map(|(name, rule)| SymbolInformation {
                 name: name.to_owned(),
@@ -406,5 +406,9 @@ impl LanguageServer for Backend {
             params.text_document.uri,
             Document::new(params.text_document.text),
         );
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.forms.remove(&params.text_document.uri);
     }
 }

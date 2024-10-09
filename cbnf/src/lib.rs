@@ -1,10 +1,13 @@
 #![allow(clippy::option_option)]
+
 use indexmap::IndexMap;
 
 use crate::{
     parser::{error::Error, Parser},
     span::{BSpan, TSpan},
 };
+
+pub use indexmap;
 
 pub mod lexer;
 pub mod parser;
@@ -48,11 +51,11 @@ impl DocComment {
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {
-    rules: IndexMap<String, Rule>,
-    comments: Vec<Comment>,
-    docs: Vec<DocComment>,
-    errors: Vec<Error>,
-    terms: Vec<Term>,
+    pub rules: IndexMap<String, Rule>,
+    pub comments: Vec<Comment>,
+    pub docs: Vec<DocComment>,
+    pub errors: Vec<Error>,
+    pub terms: Vec<Term>,
 }
 
 impl From<Parser<'_>> for Cbnf {
