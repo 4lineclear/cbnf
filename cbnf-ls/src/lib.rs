@@ -21,6 +21,8 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: try to create a set of references at parse time
 
+// TODO: save && warn against duplicate rules
+
 // TODO: try to update the state with partial changes instead
 // of completely recomputing it each time
 
@@ -42,6 +44,7 @@ pub struct Document {
     source: String,
     line_breaks: Vec<u32>,
     rules: IndexMap<String, Rule>,
+    extras: Vec<Rule>,
     comments: Vec<cbnf::Comment>,
     docs: Vec<cbnf::DocComment>,
     errors: Vec<cbnf::parser::error::Error>,
@@ -122,6 +125,11 @@ impl Document {
             }
             _ => None,
         });
+        let extras = tokens.extras.iter().map(|r| Diagnostic {
+            range: get_range(&line_breaks, r.span),
+            message: "Duplicate rule found".into(),
+            ..Default::default()
+        });
         let diagnostics = tokens
             .errors
             .iter()
@@ -131,6 +139,7 @@ impl Document {
                 ..Default::default()
             })
             .chain(loose_terms)
+            .chain(extras)
             .collect();
         let completions = tokens
             .rules
@@ -145,6 +154,7 @@ impl Document {
             source,
             line_breaks,
             rules: tokens.rules,
+            extras: tokens.extras,
             comments: tokens.comments,
             docs: tokens.docs,
             terms: tokens.terms,

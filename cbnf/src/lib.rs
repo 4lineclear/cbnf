@@ -9,6 +9,9 @@ use crate::{
 
 pub use indexmap;
 
+// TODO: consider using string interning (or a ton of refs) to
+// allow for partial compilation
+
 pub mod lexer;
 pub mod parser;
 pub mod span;
@@ -51,7 +54,10 @@ impl DocComment {
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {
+    // TODO: create a double key map where either a BSpan or a String can
+    // index the map
     pub rules: IndexMap<String, Rule>,
+    pub extras: Vec<Rule>,
     pub comments: Vec<Comment>,
     pub docs: Vec<DocComment>,
     pub errors: Vec<Error>,
@@ -60,14 +66,18 @@ pub struct Cbnf {
 
 impl From<Parser<'_>> for Cbnf {
     fn from(mut value: Parser<'_>) -> Self {
-        let rules = core::iter::from_fn(|| {
-            value
-                .next_rule()
-                .map(|r| (value.slice(r.name).to_owned(), r))
-        })
-        .collect();
+        let mut extras = Vec::new();
+        let mut rules = IndexMap::new();
+        while let Some(rule) = value.next_rule() {
+            if !rules.contains_key(value.slice(rule.name)) {
+                rules.insert(value.slice(rule.name).to_owned(), rule);
+            } else {
+                extras.push(rule);
+            }
+        }
         Self {
             rules,
+            extras,
             comments: value.comments,
             docs: value.docs,
             errors: value.errors,

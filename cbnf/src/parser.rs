@@ -104,6 +104,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO: revise this function, change some failing semantics
     #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
         let (name, open) = if let Some(span) = self.until_dollar_or_ident()? {
