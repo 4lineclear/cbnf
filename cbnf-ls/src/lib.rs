@@ -17,8 +17,6 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: create better diagnostics messages, find common errors
 
-// TODO: ignore keywords (nil)
-
 // TODO: try to precompute more things
 
 // TODO: try to create a set of references at parse time
@@ -38,17 +36,23 @@ impl Backend {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, Default)]
 pub struct Document {
     source: String,
     line_breaks: Vec<u32>,
     rules: IndexMap<String, Rule>,
-    #[allow(unused)]
     comments: Vec<cbnf::Comment>,
-    #[allow(unused)]
     docs: Vec<cbnf::DocComment>,
-    errors: Vec<Diagnostic>,
+    errors: Vec<cbnf::parser::error::Error>,
     terms: Vec<Term>,
+    cache: Cache,
+}
+
+#[derive(Debug, Default)]
+pub struct Cache {
+    diagnostics: Vec<Diagnostic>,
+    completions: Vec<CompletionItem>,
 }
 
 fn find_lines(source: &str) -> Vec<u32> {
@@ -105,12 +109,35 @@ impl Document {
     fn new(source: String) -> Self {
         let tokens = Cbnf::parse(&source);
         let line_breaks = find_lines(&source);
-        let errors = tokens
+        let loose_terms = tokens.terms.iter().filter_map(|t| match t {
+            &Term::Ident(span)
+                if !tokens.rules().contains_key(span.slice(&source))
+                    && !is_keyword(span.slice(&source)) =>
+            {
+                Some(Diagnostic {
+                    range: get_range(&line_breaks, span),
+                    message: "Unknown term".into(),
+                    ..Default::default()
+                })
+            }
+            _ => None,
+        });
+        let diagnostics = tokens
             .errors
             .iter()
             .map(|e| Diagnostic {
                 range: get_range(&line_breaks, e.span()),
                 message: e.message(),
+                ..Default::default()
+            })
+            .chain(loose_terms)
+            .collect();
+        let completions = tokens
+            .rules
+            .iter()
+            .map(|(n, _)| CompletionItem {
+                label: n.to_owned(),
+                kind: Some(CompletionItemKind::CLASS),
                 ..Default::default()
             })
             .collect();
@@ -121,7 +148,11 @@ impl Document {
             comments: tokens.comments,
             docs: tokens.docs,
             terms: tokens.terms,
-            errors,
+            errors: tokens.errors,
+            cache: Cache {
+                diagnostics,
+                completions,
+            },
         }
     }
 
@@ -173,6 +204,10 @@ impl Document {
     fn get_range(&self, span: BSpan) -> Range {
         get_range(&self.line_breaks, span)
     }
+}
+
+fn is_keyword(source: &str) -> bool {
+    matches!(source, "nil")
 }
 
 impl Backend {
@@ -237,7 +272,11 @@ impl LanguageServer for Backend {
                 related_documents: None,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
                     result_id: None,
-                    items: self.get_doc(&params.text_document.uri)?.errors.clone(),
+                    items: self
+                        .get_doc(&params.text_document.uri)?
+                        .cache
+                        .diagnostics
+                        .clone(),
                 },
             }),
         ))
@@ -246,14 +285,9 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         Ok(Some(CompletionResponse::Array(
             self.get_doc(&params.text_document_position.text_document.uri)?
-                .rules
-                .iter()
-                .map(|(n, _)| CompletionItem {
-                    label: n.to_owned(),
-                    kind: Some(CompletionItemKind::CLASS),
-                    ..Default::default()
-                })
-                .collect(),
+                .cache
+                .completions
+                .clone(),
         )))
     }
 
