@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     lexer::LexKind,
     parser::{
-        error::{Error::*, InvalidLiteral},
+        error::{Error, ErrorKind::*, InvalidLiteral},
         LIST_EXPECTED, RULE_EXPECTED,
     },
     span::{BSpan, TSpan},
@@ -13,9 +13,10 @@ use crate::{
 use pretty_assertions::assert_eq;
 
 // TODO: create better testing system.
-//
+// hopefully break tests (bytes,  terms) into multiple strings at least
+
 // TODO: add more testing for error cases.
-//
+
 // TODO: add fuzzing.
 
 fn cbnf_print(src: &str, cbnf: &Cbnf) -> String {
@@ -86,10 +87,6 @@ impl TSpan {
     }
 }
 
-const IDENT_1: [LexKind; 1] = [LexKind::Ident];
-const RULE_AFTER_IDENT: [LexKind; 1] = [LexKind::OpenBrace];
-const META_AFTER_IDENT: [LexKind; 2] = [LexKind::Semi, LexKind::OpenBrace];
-
 macro_rules! expected {
     ($($exp: ident, $(($a: expr, $b: expr)),*),*) => {
         [$($(
@@ -98,7 +95,7 @@ macro_rules! expected {
 
     };
     ($exp: expr, $a: expr, $b: expr) => {
-        Expected(($a, $b).into(), $exp.into())
+        Error { span: ($a, $b).into(), kind: Expected($exp.into()) }
     };
 }
 
@@ -112,7 +109,7 @@ macro_rules! numeric {
 
     };
     ($a: expr, $b: expr) => {
-        InvalidLit(InvalidLiteral::Numeric, ($a, $b).into())
+        Error { span: ($a, $b).into(), kind: InvalidLit(InvalidLiteral::Numeric) }
     };
 }
 
@@ -249,20 +246,23 @@ fn cbnf() {
     assert_eq!(
         out,
         "\
-            (126, 157)(126, 133)(134, 157)(140, 143)(144, 149)(150, 154)\
-            (158, 191)(158, 164)(165, 191)(172, 176)(177, 183)(184, 189)\
-            (186, 189)(192, 244)(192, 196)(197, 244)(203, 218)(204, 210)\
-            (211, 217)(213, 217)(219, 222)(223, 227)(228, 231)(232, 242)\
-            (234, 238)(239, 242)(245, 275)(245, 249)(250, 275)(256, 260)\
-            (261, 273)(262, 266)(267, 272)(269, 272)(276, 321)(276, 280)\
-            (281, 321)(287, 294)(295, 303)(297, 303)(304, 310)(306, 310)\
-            (311, 318)(313, 318)(322, 345)(322, 326)(327, 345)(333, 336)\
-            (337, 343)(346, 373)(346, 351)(352, 373)(358, 361)(362, 366)\
-            (367, 370)(375, 403)(375, 382)(383, 403)(389, 392)(393, 397)\
-            (398, 401)(405, 410)(405, 410)(428, 433)(428, 433)(456, 462)\
-            (456, 462)(511, 515)(511, 515)\
-            [0, 3][3, 7][5, 7][7, 17][7, 11][9, 11][14, 17][17, 22][18, 22]\
-            [20, 22][22, 29][23, 25][25, 27][27, 29][29, 31][31, 34][34, 37]"
+            (27, 66)(27, 34)(35, 66)(41, 44)(45, 50)(51, 64)(52, 56)(57, 63)\
+            (59, 63)(67, 100)(67, 73)(74, 100)(81, 85)(86, 92)(93, 98)(95, 98)\
+            (101, 153)(101, 105)(106, 153)(112, 127)(113, 119)(120, 126)\
+            (122, 126)(128, 131)(132, 136)(137, 140)(141, 151)(143, 147)\
+            (148, 151)(154, 184)(154, 158)(159, 184)(165, 169)(170, 182)\
+            (171, 175)(176, 181)(178, 181)(185, 244)(185, 189)(190, 244)\
+            (196, 203)(204, 210)(206, 210)(211, 219)(213, 219)(220, 226)\
+            (222, 226)(227, 234)(229, 234)(235, 242)(237, 242)(245, 268)\
+            (245, 249)(250, 268)(256, 259)(260, 266)(269, 295)(269, 274)\
+            (275, 295)(281, 284)(285, 289)(290, 293)(296, 325)(296, 303)\
+            (304, 325)(310, 313)(314, 319)(320, 323)(326, 354)(326, 330)\
+            (331, 354)(337, 341)(342, 347)(348, 352)(357, 362)(357, 362)\
+            (364, 369)(364, 369)(371, 377)(371, 377)(379, 383)(379, 383)\
+            (385, 389)(385, 389)\
+            [0, 6][2, 6][4, 6][6, 10][8, 10][10, 20][10, 14][12, 14][17, 20]\
+            [20, 25][21, 25][23, 25][25, 36][26, 28][28, 30][30, 32][32, 34]\
+            [34, 36][36, 38][38, 41][41, 44][44, 47]"
     );
     assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
 }
@@ -274,7 +274,7 @@ fn unclosed_rule() {
     let src = "yeah { ";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([Expected((7, 7).into(), [LexKind::CloseBrace].into())]);
+    let expected = debug!([Error::from(((5, 7).into(), UnclosedRule)),]);
     assert_eq!(actual, expected);
 }
 #[test]
@@ -282,7 +282,7 @@ fn unclosed_group() {
     let src = "yeah { ( }";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([Unterminated((7, 10).into())]);
+    let expected = debug!([Error::from(((7, 10).into(), Unterminated))]);
     assert_eq!(actual, expected);
 }
 #[test]
@@ -291,8 +291,8 @@ fn unclosed_rule_group() {
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
     let expected = debug!([
-        Unterminated((7, 9).into()),
-        Expected((9, 9).into(), [LexKind::CloseBrace].into())
+        Error::from(((7, 9).into(), Unterminated)),
+        Error::from(((5, 9).into(), UnclosedRule)),
     ]);
     assert_eq!(actual, expected);
 }
@@ -331,7 +331,10 @@ fn dollar_repeat() {
     let src = "$ $";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!(expected![IDENT_1, (2, 3)]);
+    let expected = debug!([
+        Error::from(((0, 1).into(), UnnamedMeta)),
+        Error::from(((2, 3).into(), UnnamedMeta)),
+    ]);
     assert_eq!(actual, expected);
 }
 #[test]
@@ -339,23 +342,32 @@ fn empty_dollar() {
     let src = "$yeah { $ }";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!(expected![IDENT_1, (10, 11)]);
+    let expected = debug!([Error::from((
+        (10, 11).into(),
+        Expected([LexKind::Ident].into())
+    ))]);
     assert_eq!(actual, expected);
 }
 #[test]
-fn dolllar_after_rule() {
+fn dollar_after_meta() {
     let src = "$yeah $";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!(expected![META_AFTER_IDENT, (6, 7)]);
+    let expected = debug!([
+        Error::from(((0, 5).into(), UnopenedMeta)),
+        Error::from(((6, 7).into(), UnnamedMeta)),
+    ]);
     assert_eq!(actual, expected);
 }
 #[test]
-fn rule_after_ident() {
+fn dollar_after_rule() {
     let src = "yeah $";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!(expected![RULE_AFTER_IDENT, (5, 6)]);
+    let expected = debug!([
+        Error::from(((0, 4).into(), UnopenedRule)),
+        Error::from(((5, 6).into(), UnnamedMeta)),
+    ]);
     assert_eq!(actual, expected);
 }
 #[test]
@@ -363,7 +375,10 @@ fn unterm_char() {
     let src = "yeah { '\n}";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([InvalidLit(InvalidLiteral::Unterminated, (7, 8).into())]);
+    let expected = debug!([Error::from((
+        (7, 8).into(),
+        InvalidLit(InvalidLiteral::Unterminated)
+    )),]);
     assert_eq!(actual, expected);
 }
 #[test]
@@ -372,8 +387,8 @@ fn unterm_string() {
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
     let expected = debug!([
-        InvalidLit(InvalidLiteral::Unterminated, (7, 9).into()),
-        Expected((9, 9).into(), [LexKind::CloseBrace].into())
+        Error::from(((7, 9).into(), InvalidLit(InvalidLiteral::Unterminated))),
+        Error::from(((5, 9).into(), UnclosedRule)),
     ]);
     assert_eq!(actual, expected);
 }

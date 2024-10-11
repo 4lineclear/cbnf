@@ -10,6 +10,8 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 // TODO: consider parsing newlines at a different point in the process
 // Add LSpan (Line Span) to cbnf
 
+// TODO: add regex strings
+
 // TODO: add more fail fast parsing, for eg:
 // fail fast when neither semi or brace follows a rule/meta name
 
@@ -25,6 +27,8 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: try to update the state with partial changes instead
 // of completely recomputing it each time
+
+// TODO: consider removing meta variables
 
 #[derive(Debug)]
 pub struct Backend {

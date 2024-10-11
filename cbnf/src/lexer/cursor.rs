@@ -16,7 +16,9 @@ pub struct Cursor<'a> {
     len_remaining: u32,
     src: &'a str,
     chars: Chars<'a>,
+    #[cfg(debug_assertions)]
     prev: char,
+    #[cfg(debug_assertions)]
     prev_token: Lexeme,
 }
 
@@ -34,7 +36,9 @@ impl<'a> Cursor<'a> {
             len_remaining: input.len() as u32,
             src: input,
             chars: input.chars(),
+            #[cfg(debug_assertions)]
             prev: EOF_CHAR,
+            #[cfg(debug_assertions)]
             prev_token: Lexeme::new(LexKind::Eof, 0),
         }
     }
@@ -70,6 +74,7 @@ impl Cursor<'_> {
 
     /// Returns the last eaten symbol (or `'\0'` in release builds).
     /// (For debug assertions only.)
+    #[cfg(debug_assertions)]
     #[must_use]
     pub const fn prev(&self) -> char {
         self.prev
@@ -77,6 +82,7 @@ impl Cursor<'_> {
 
     /// Returns the last eaten token
     /// (For debug assertions only.)
+    #[cfg(debug_assertions)]
     #[must_use]
     pub const fn prev_token(&self) -> Lexeme {
         self.prev_token
@@ -131,7 +137,10 @@ impl Cursor<'_> {
     /// Moves to the next character.
     pub fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
-        self.prev = c;
+        #[cfg(debug_assertions)]
+        {
+            self.prev = c;
+        }
         Some(c)
     }
 

@@ -17,11 +17,22 @@ pub mod parser;
 pub mod span;
 pub mod util;
 
-// TODO: resolve rule names.
-//
+// TODO: consider moving to c or rust style comments
+// if that is done, add raw strings back in too.
+
 // TODO: add test coverage
-//
-// TODO: test multi or
+
+// TODO: add whitespace aware syntax
+// something such as a ',' denoting an immediate token
+
+// TODO: add another byte
+
+// TODO: add integers, floats and multiplication
+
+// TODO: replace meta-variables with regex && UnicodeSet notation
+
+// TODO: generate a parser generator from this file that is tested by
+// parsing this file
 
 #[derive(Clone, Debug)]
 pub struct Comment(BSpan);
@@ -69,10 +80,10 @@ impl From<Parser<'_>> for Cbnf {
         let mut extras = Vec::new();
         let mut rules = IndexMap::new();
         while let Some(rule) = value.next_rule() {
-            if !rules.contains_key(value.slice(rule.name)) {
-                rules.insert(value.slice(rule.name).to_owned(), rule);
-            } else {
+            if rules.contains_key(value.slice(rule.name)) {
                 extras.push(rule);
+            } else {
+                rules.insert(value.slice(rule.name).to_owned(), rule);
             }
         }
         Self {

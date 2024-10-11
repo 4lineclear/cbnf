@@ -14,7 +14,7 @@ check *FLAGS:
     cargo check --workspace {{FLAGS}} 
 
 todo:
-    rg "todo|FIX|TODO|HACK|WARN|PERF|NOTE|TEST" ./cbnf/ ./cbnf-ls/
+    rg "todo|FIX|FIXME|TODO|HACK|WARN|PERF|NOTE|TEST" ./cbnf/ ./cbnf-ls/
 
 cov:
     cargo llvm-cov --html

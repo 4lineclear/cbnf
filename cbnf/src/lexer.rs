@@ -22,6 +22,13 @@ pub use token::{
     LiteralKind::{self, *},
 };
 
+macro_rules! dassert {
+    ($($t:tt)*) => {
+        #[cfg(debug_assertions)]
+        assert!($($t)*);
+    };
+}
+
 pub fn tokenize(input: &str) -> impl Iterator<Item = Lexeme> + '_ {
     Cursor::new(input)
 }
@@ -105,7 +112,7 @@ impl Cursor<'_> {
     }
 
     fn line_comment(&mut self) -> LexKind {
-        debug_assert!(self.prev() == '#');
+        dassert!(self.prev() == '#');
 
         let doc_style = match self.first() {
             // `#!` is an inner line doc comment.
@@ -120,13 +127,13 @@ impl Cursor<'_> {
     }
 
     fn whitespace(&mut self) -> LexKind {
-        debug_assert!(is_whitespace(self.prev()));
+        dassert!(is_whitespace(self.prev()));
         self.eat_while(is_whitespace);
         Whitespace
     }
 
     fn ident(&mut self) -> LexKind {
-        debug_assert!(is_id_start(self.prev()));
+        dassert!(is_id_start(self.prev()));
         // Start is already eaten, eat the rest of identifier.
         self.eat_while(is_id_continue);
         // Known prefixes must have been handled earlier. So if
@@ -159,7 +166,7 @@ impl Cursor<'_> {
     }
 
     fn number(&mut self, first_digit: char) -> LiteralKind {
-        debug_assert!('0' <= self.prev() && self.prev() <= '9');
+        dassert!('0' <= self.prev() && self.prev() <= '9');
         let mut base = Base::Decimal;
         if first_digit == '0' {
             // Attempt to parse encoding base.
@@ -255,7 +262,7 @@ impl Cursor<'_> {
     }
 
     fn char(&mut self) -> LexKind {
-        debug_assert!(self.prev() == '\'');
+        dassert!(self.prev() == '\'');
         let terminated = self.single_quoted_string();
         let suffix_start = self.pos_within_token();
         if terminated {
@@ -266,7 +273,7 @@ impl Cursor<'_> {
     }
 
     fn single_quoted_string(&mut self) -> bool {
-        debug_assert!(self.prev() == '\'');
+        dassert!(self.prev() == '\'');
         // Check if it's a one-symbol literal.
         if self.second() == '\'' && self.first() != '\\' {
             self.bump();
@@ -309,7 +316,7 @@ impl Cursor<'_> {
     /// Eats double-quoted string and returns true
     /// if string is terminated.
     fn double_quoted_string(&mut self) -> bool {
-        debug_assert!(self.prev() == '"');
+        dassert!(self.prev() == '"');
         while let Some(c) = self.bump() {
             match c {
                 '"' => {
@@ -363,7 +370,7 @@ impl Cursor<'_> {
     /// Eats the float exponent. Returns true if at least one digit was met,
     /// and returns false otherwise.
     fn eat_float_exponent(&mut self) -> bool {
-        debug_assert!(self.prev() == 'e' || self.prev() == 'E');
+        dassert!(self.prev() == 'e' || self.prev() == 'E');
         if self.first() == '-' || self.first() == '+' {
             self.bump();
         }
