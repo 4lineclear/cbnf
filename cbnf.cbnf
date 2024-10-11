@@ -1,4 +1,4 @@
-# cbnf's self description
+// cbnf's self description
 
 comment {
     '#' text (EOL | EOF)

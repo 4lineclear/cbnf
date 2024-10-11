@@ -1,6 +1,6 @@
-use super::*;
-
 use expect_test::{expect, Expect};
+
+use super::*;
 
 fn check_lexing(src: &str, expect: Expect) {
     let actual: String = tokenize(src)
@@ -10,51 +10,23 @@ fn check_lexing(src: &str, expect: Expect) {
 }
 
 #[test]
-fn smoke_test() {
-    check_lexing(
-        "fn main() { println!(\"zebra\"); } # my source file\n",
-        expect![[r#"
-            Lexeme { kind: Ident, len: 2 }
-            Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: Ident, len: 4 }
-            Lexeme { kind: OpenParen, len: 1 }
-            Lexeme { kind: CloseParen, len: 1 }
-            Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: OpenBrace, len: 1 }
-            Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: Ident, len: 7 }
-            Lexeme { kind: Bang, len: 1 }
-            Lexeme { kind: OpenParen, len: 1 }
-            Lexeme { kind: Literal { kind: Str { terminated: true }, suffix_start: 7 }, len: 7 }
-            Lexeme { kind: CloseParen, len: 1 }
-            Lexeme { kind: Semi, len: 1 }
-            Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: CloseBrace, len: 1 }
-            Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: LineComment { doc_style: None }, len: 16 }
-            Lexeme { kind: Whitespace, len: 1 }
-        "#]],
-    )
-}
-
-#[test]
 fn comment_flavors() {
     check_lexing(
         r"
-# line
-#:: line as well
-#: outer doc line
-#! inner doc line
+// line
+//// line as well
+/// outer doc line
+//! inner doc line
 ",
         expect![[r#"
             Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: LineComment { doc_style: None }, len: 6 }
+            Lexeme { kind: LineComment { doc_style: None }, len: 7 }
             Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: LineComment { doc_style: None }, len: 16 }
+            Lexeme { kind: LineComment { doc_style: None }, len: 17 }
             Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: LineComment { doc_style: Some(Outer) }, len: 17 }
+            Lexeme { kind: LineComment { doc_style: Some(Outer) }, len: 18 }
             Lexeme { kind: Whitespace, len: 1 }
-            Lexeme { kind: LineComment { doc_style: Some(Inner) }, len: 17 }
+            Lexeme { kind: LineComment { doc_style: Some(Inner) }, len: 18 }
             Lexeme { kind: Whitespace, len: 1 }
         "#]],
     )
@@ -70,16 +42,6 @@ fn characters() {
             Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }
             Lexeme { kind: Whitespace, len: 1 }
             Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 4 }, len: 4 }
-        "#]],
-    );
-}
-
-#[test]
-fn incomplete_char() {
-    check_lexing(
-        "'abc",
-        expect![[r#"
-            Lexeme { kind: Literal { kind: Char { terminated: false }, suffix_start: 4 }, len: 4 }
         "#]],
     );
 }

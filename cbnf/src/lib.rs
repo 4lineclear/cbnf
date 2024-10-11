@@ -60,8 +60,6 @@ impl DocComment {
     }
 }
 
-// TODO: record duplicates
-
 /// Complex Bachus-Naur Form
 #[derive(Default, Clone, Debug)]
 pub struct Cbnf {

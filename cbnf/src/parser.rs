@@ -115,7 +115,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // TODO: move errors to current token rather than next token
     #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
         let (name, open) = loop {
@@ -163,10 +162,6 @@ impl<'a> Parser<'a> {
                     )));
                 }
                 Ident => self.terms.push(Term::Ident(span)),
-                Dollar => match self.ident().map(|s| s.to) {
-                    Some(to) => self.terms.push(Term::Ident(span.to(to))),
-                    None => continue,
-                },
                 Literal { kind, .. } if kind.is_string() => {
                     if !kind.terminated() {
                         self.push_err(Error {
@@ -242,17 +237,6 @@ impl<'a> Parser<'a> {
                 span: self.span(err_span),
                 kind: ErrorKind::Unterminated,
             });
-        }
-    }
-
-    fn ident(&mut self) -> Option<BSpan> {
-        let (token, span) = self.until_non_wc();
-        if Ident == token.kind {
-            Some(span)
-        } else {
-            self.err_expected(self.span(token), [Ident]);
-            self.reverse(token);
-            None
         }
     }
 

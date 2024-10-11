@@ -67,8 +67,12 @@ impl Cursor<'_> {
                 }
             }
 
-            // comment or block comment.
-            '#' => self.line_comment(),
+            // comment
+            // Slash, comment
+            '/' => match self.first() {
+                '/' => self.line_comment(),
+                _ => Slash,
+            },
 
             // One-symbol tokens.
             ';' => Semi,
@@ -112,13 +116,14 @@ impl Cursor<'_> {
     }
 
     fn line_comment(&mut self) -> LexKind {
-        dassert!(self.prev() == '#');
+        dassert!(self.prev() == '/' && self.first() == '/');
+        self.bump();
 
         let doc_style = match self.first() {
-            // `#!` is an inner line doc comment.
+            // `//!` is an inner line doc comment.
             '!' => Some(DocStyle::Inner),
-            // `###` (more than 2 slashes) is not considered a doc comment.
-            ':' if self.second() != ':' => Some(DocStyle::Outer),
+            // `////` (more than 3 slashes) is not considered a doc comment.
+            '/' if self.second() != '/' => Some(DocStyle::Outer),
             _ => None,
         };
 

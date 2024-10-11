@@ -12,9 +12,6 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: add regex strings
 
-// TODO: add more fail fast parsing, for eg:
-// fail fast when neither semi or brace follows a rule/meta name
-
 // TODO: hide all of the below behind another layer which can be tested
 
 // TODO: create better diagnostics messages, find common errors
