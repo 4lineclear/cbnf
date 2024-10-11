@@ -128,22 +128,6 @@ fn empty() {
     assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
 }
 #[test]
-fn short_meta() {
-    let src = "$yeah;";
-    let cbnf = Cbnf::parse(src);
-    let out = cbnf_print(src, &cbnf);
-    assert_eq!(out, "(0, 5)(0, 5)");
-    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
-}
-#[test]
-fn empty_long_meta() {
-    let src = "$yeah { }";
-    let cbnf = Cbnf::parse(src);
-    let out = cbnf_print(src, &cbnf);
-    assert_eq!(out, "(0, 9)(0, 5)(6, 9)[0, 0]");
-    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
-}
-#[test]
 fn strings() {
     let src = r#"yeah { "one" "two" "three" }"#;
     let cbnf = Cbnf::parse(src);
@@ -168,14 +152,6 @@ fn idents() {
     assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
 }
 #[test]
-fn metas() {
-    let src = "yeah { $one $two $three }";
-    let cbnf = Cbnf::parse(src);
-    let out = cbnf_print(src, &cbnf);
-    assert_eq!(out, "(0, 25)(0, 4)(5, 25)(7, 11)(12, 16)(17, 23)[0, 3]");
-    assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
-}
-#[test]
 fn group() {
     let src = "yeah { ( ) }";
     let cbnf = Cbnf::parse(src);
@@ -185,7 +161,7 @@ fn group() {
 }
 #[test]
 fn mixed() {
-    let src = r#"yeah { nil a $b "c" 'd' (a $b "c" 'd') nil }"#;
+    let src = r#"yeah { nil a bb "c" 'd' (a bb "c" 'd') nil }"#;
     let cbnf = Cbnf::parse(src);
     let out = cbnf_print(src, &cbnf);
     assert_eq!(
@@ -198,7 +174,7 @@ fn mixed() {
 }
 #[test]
 fn single_or() {
-    let src = r#"yeah { a $b "c" 'd' | a $b "c" 'd' }"#;
+    let src = r#"yeah { a bb "c" 'd' | a bb "c" 'd' }"#;
     let cbnf = Cbnf::parse(src);
     let out = cbnf_print(src, &cbnf);
     assert_eq!(
@@ -210,7 +186,7 @@ fn single_or() {
 }
 #[test]
 fn many_or() {
-    let src = r#"yeah { a | $b | "c" | 'd' | e | $f | "g" | 'h' }"#;
+    let src = r#"yeah { a | bb | "c" | 'd' | e | ff | "g" | 'h' }"#;
     let cbnf = Cbnf::parse(src);
     let out = cbnf_print(src, &cbnf);
     assert_eq!(
@@ -224,7 +200,7 @@ fn many_or() {
 }
 #[test]
 fn many_group_or() {
-    let src = r#"yeah { ((a | $b) | "c") | ((('d') | e) | ($f) | ("g" | 'h')) }"#;
+    let src = r#"yeah { ((a | bb) | "c") | ((('d') | e) | (ff) | ("g" | 'h')) }"#;
     let cbnf = Cbnf::parse(src);
     let out = cbnf_print(src, &cbnf);
     assert_eq!(
@@ -246,23 +222,20 @@ fn cbnf() {
     assert_eq!(
         out,
         "\
-            (27, 66)(27, 34)(35, 66)(41, 44)(45, 50)(51, 64)(52, 56)(57, 63)\
-            (59, 63)(67, 100)(67, 73)(74, 100)(81, 85)(86, 92)(93, 98)(95, 98)\
-            (101, 153)(101, 105)(106, 153)(112, 127)(113, 119)(120, 126)\
-            (122, 126)(128, 131)(132, 136)(137, 140)(141, 151)(143, 147)\
-            (148, 151)(154, 184)(154, 158)(159, 184)(165, 169)(170, 182)\
-            (171, 175)(176, 181)(178, 181)(185, 244)(185, 189)(190, 244)\
-            (196, 203)(204, 210)(206, 210)(211, 219)(213, 219)(220, 226)\
-            (222, 226)(227, 234)(229, 234)(235, 242)(237, 242)(245, 268)\
-            (245, 249)(250, 268)(256, 259)(260, 266)(269, 295)(269, 274)\
-            (275, 295)(281, 284)(285, 289)(290, 293)(296, 325)(296, 303)\
-            (304, 325)(310, 313)(314, 319)(320, 323)(326, 354)(326, 330)\
-            (331, 354)(337, 341)(342, 347)(348, 352)(357, 362)(357, 362)\
-            (364, 369)(364, 369)(371, 377)(371, 377)(379, 383)(379, 383)\
-            (385, 389)(385, 389)\
-            [0, 6][2, 6][4, 6][6, 10][8, 10][10, 20][10, 14][12, 14][17, 20]\
-            [20, 25][21, 25][23, 25][25, 36][26, 28][28, 30][30, 32][32, 34]\
-            [34, 36][36, 38][38, 41][41, 44][44, 47]"
+            (27, 63)(27, 34)(35, 63)(41, 44)(45, 49)(50, 61)(51, 54)(55, 60)\
+            (57, 60)(64, 97)(64, 70)(71, 97)(78, 82)(83, 89)(90, 95)(92, 95)\
+            (98, 129)(98, 102)(103, 129)(109, 114)(115, 118)(119, 123)\
+            (124, 127)(130, 160)(130, 134)(135, 160)(141, 145)(146, 158)\
+            (147, 151)(152, 157)(154, 157)(161, 212)(161, 165)(166, 212)\
+            (172, 179)(180, 186)(182, 186)(187, 194)(189, 194)(195, 202)\
+            (197, 202)(203, 210)(205, 210)(213, 239)(213, 218)(219, 239)\
+            (225, 228)(229, 233)(234, 237)(240, 268)(240, 247)(248, 268)\
+            (254, 257)(258, 262)(263, 266)(269, 296)(269, 273)(274, 296)\
+            (280, 284)(285, 289)(290, 294)(298, 305)(298, 302)(303, 305)\
+            (306, 314)(306, 311)(312, 314)(315, 321)(315, 318)(319, 321)\
+            (322, 328)(322, 325)(326, 328)[0, 6][2, 6][4, 6][6, 10][8, 10]\
+            [10, 14][14, 19][15, 19][17, 19][19, 28][20, 22][22, 24][24, 26]\
+            [26, 28][28, 31][31, 34][34, 37][37, 37][37, 37][37, 37][37, 37]"
     );
     assert!(cbnf.errors.is_empty(), "{:#?}", cbnf.errors);
 }
@@ -327,46 +300,13 @@ fn not_rule_or_ident() {
     assert_eq!(actual, expected);
 }
 #[test]
-fn dollar_repeat() {
-    let src = "$ $";
-    let cbnf = Cbnf::parse(src);
-    let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([
-        Error::from(((0, 1).into(), UnnamedMeta)),
-        Error::from(((2, 3).into(), UnnamedMeta)),
-    ]);
-    assert_eq!(actual, expected);
-}
-#[test]
-fn empty_dollar() {
-    let src = "$yeah { $ }";
-    let cbnf = Cbnf::parse(src);
-    let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([Error::from((
-        (10, 11).into(),
-        Expected([LexKind::Ident].into())
-    ))]);
-    assert_eq!(actual, expected);
-}
-#[test]
-fn dollar_after_meta() {
-    let src = "$yeah $";
-    let cbnf = Cbnf::parse(src);
-    let actual = format!("{:#?}", cbnf.errors);
-    let expected = debug!([
-        Error::from(((0, 5).into(), UnopenedMeta)),
-        Error::from(((6, 7).into(), UnnamedMeta)),
-    ]);
-    assert_eq!(actual, expected);
-}
-#[test]
 fn dollar_after_rule() {
     let src = "yeah $";
     let cbnf = Cbnf::parse(src);
     let actual = format!("{:#?}", cbnf.errors);
     let expected = debug!([
         Error::from(((0, 4).into(), UnopenedRule)),
-        Error::from(((5, 6).into(), UnnamedMeta)),
+        Error::from(((5, 6).into(), Expected([LexKind::Ident].into())))
     ]);
     assert_eq!(actual, expected);
 }

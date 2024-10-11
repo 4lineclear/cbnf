@@ -20,8 +20,6 @@ pub enum ErrorKind {
     InvalidLit(InvalidLiteral),
     UnclosedRule,
     UnopenedRule,
-    UnopenedMeta,
-    UnnamedMeta,
     Unterminated,
     Expected(Box<[lexer::LexKind]>),
 }
@@ -51,8 +49,6 @@ impl Error {
             .into(),
             UnclosedRule => "Unclosed rule found".into(),
             UnopenedRule => "Unopened rule found".into(),
-            UnopenedMeta => "Unopened meta found".into(),
-            UnnamedMeta => "Unnamed meta found".into(),
             Unterminated => "Group not terminated".into(),
             Expected(acc) => {
                 if acc.len() == 0 {

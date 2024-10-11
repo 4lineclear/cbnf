@@ -1,37 +1,31 @@
 # cbnf's self description
 
 comment {
-    '#' $text ($EOL | $EOF)
+    '#' text (EOL | EOF)
 }
 syntax { 
     rule syntax | nil
 }
 rule {
-    ($ident | meta) '{' list '}' | meta ';'
+    ident '{' list '}'
 }
 list {
     term (list | nil)
 }
 term {
-    literal | char | $ident | meta | group | "nil"
-}
-meta {
-    '$' $ident
+    literal | char | ident | group | "nil"
 }
 group {
     '(' list ')'
 }
 literal {
-    '"' $text '"'
+    '"' text '"'
 }
 char {
-    '\'' $char '\''
+    '\'' char '\''
 }
 
-
-$text;
-$char;
-$ident;
-$EOL;
-$EOF;
-
+text {}
+ident {}
+EOL {}
+EOF {}

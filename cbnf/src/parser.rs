@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
 }
 
 pub const LIST_EXPECTED: [LexKind; 5] = [OpenParen, Ident, Or, LITERAL, CloseBrace];
-pub const RULE_EXPECTED: [LexKind; 2] = [Dollar, Ident];
+pub const RULE_EXPECTED: [LexKind; 1] = [Ident];
 
 impl<'a> Parser<'a> {
     #[must_use]
@@ -119,27 +119,9 @@ impl<'a> Parser<'a> {
     #[must_use]
     pub fn next_rule(&mut self) -> Option<Rule> {
         let (name, open) = loop {
-            if let Some(span) = self.until_dollar_or_ident()? {
-                if let Some(open) = self.rule_opener(span) {
-                    break (span, open);
-                }
-            } else {
-                let dollar = self.token_pos();
-                let Some(ident) = self.meta_name(dollar) else {
-                    continue;
-                };
-                let name = ident.from(dollar);
-                let Some(semi) = self.meta_opener(name) else {
-                    continue;
-                };
-                if semi {
-                    return Some(Rule {
-                        name,
-                        expr: None,
-                        span: (dollar, self.token_pos()).into(),
-                    });
-                }
-                break (name, self.token_pos());
+            let span = self.until_ident()?;
+            if let Some(open) = self.rule_opener(span) {
+                break (span, open);
             }
         };
         let (close, terms) = self.list(open);
@@ -274,36 +256,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn meta_name(&mut self, dollar: u32) -> Option<BSpan> {
-        let (token, span) = self.until_non_wc();
-        if Ident == token.kind {
-            Some(span)
-        } else {
-            self.push_err(Error {
-                span: (dollar, dollar + 1).into(),
-                kind: ErrorKind::UnnamedMeta,
-            });
-            self.reverse(token);
-            None
-        }
-    }
-
-    fn meta_opener(&mut self, err_span: BSpan) -> Option<bool> {
-        let (token, _) = self.until_non_wc();
-        match token.kind {
-            Semi => Some(true),
-            OpenBrace => Some(false),
-            _ => {
-                self.push_err(Error {
-                    span: err_span,
-                    kind: ErrorKind::UnopenedMeta,
-                });
-                self.reverse(token);
-                None
-            }
-        }
-    }
-
     fn rule_opener(&mut self, err_span: BSpan) -> Option<u32> {
         let (token, span) = self.until_non_wc();
         if OpenBrace == token.kind {
@@ -318,17 +270,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `X` = Eof, `Y` = Dollar, `Z` = Ident
-    ///
-    /// Runs until one of the above is found
-    fn until_dollar_or_ident(&mut self) -> Option<Option<BSpan>> {
+    fn until_ident(&mut self) -> Option<BSpan> {
         loop {
             let (token, span) = self.until_non_wc();
             match token.kind {
-                Dollar => break Some(None),
-                Ident => break Some(Some(span)),
+                Ident => break Some(span),
                 Eof => return None,
-                _ => self.err_expected(token, [Dollar, Ident]),
+                _ => self.err_expected(token, [Ident]),
             };
         }
     }
