@@ -10,6 +10,34 @@ fn check_lexing(src: &str, expect: Expect) {
 }
 
 #[test]
+fn smoke_test() {
+    check_lexing(
+        "/* my source file */ fn main() { println!(\"zebra\"); }\n",
+        expect![[r#"
+            Lexeme { kind: BlockComment { doc_style: None, terminated: true }, len: 20 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Ident, len: 2 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Ident, len: 4 }
+            Lexeme { kind: OpenParen, len: 1 }
+            Lexeme { kind: CloseParen, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: OpenBrace, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: Ident, len: 7 }
+            Lexeme { kind: Bang, len: 1 }
+            Lexeme { kind: OpenParen, len: 1 }
+            Lexeme { kind: Literal { kind: Str { terminated: true }, suffix_start: 7 }, len: 7 }
+            Lexeme { kind: CloseParen, len: 1 }
+            Lexeme { kind: Semi, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: CloseBrace, len: 1 }
+            Lexeme { kind: Whitespace, len: 1 }
+        "#]],
+    )
+}
+
+#[test]
 fn comment_flavors() {
     check_lexing(
         r"
@@ -17,6 +45,11 @@ fn comment_flavors() {
 //// line as well
 /// outer doc line
 //! inner doc line
+/* block */
+/**/
+/*** also block */
+/** outer doc block */
+/*! inner doc block */
 ",
         expect![[r#"
             Lexeme { kind: Whitespace, len: 1 }
@@ -28,6 +61,27 @@ fn comment_flavors() {
             Lexeme { kind: Whitespace, len: 1 }
             Lexeme { kind: LineComment { doc_style: Some(Inner) }, len: 18 }
             Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: BlockComment { doc_style: None, terminated: true }, len: 11 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: BlockComment { doc_style: None, terminated: true }, len: 4 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: BlockComment { doc_style: None, terminated: true }, len: 18 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: BlockComment { doc_style: Some(Outer), terminated: true }, len: 22 }
+            Lexeme { kind: Whitespace, len: 1 }
+            Lexeme { kind: BlockComment { doc_style: Some(Inner), terminated: true }, len: 22 }
+            Lexeme { kind: Whitespace, len: 1 }
+        "#]],
+    )
+}
+
+#[test]
+fn nested_block_comments() {
+    check_lexing(
+        "/* /* */ */'a'",
+        expect![[r#"
+            Lexeme { kind: BlockComment { doc_style: None, terminated: true }, len: 11 }
+            Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }
         "#]],
     )
 }
@@ -49,7 +103,7 @@ fn characters() {
 #[test]
 fn literal_suffixes() {
     check_lexing(
-        r#"
+        r####"
 'a'
 "a"
 1234
@@ -58,7 +112,7 @@ fn literal_suffixes() {
 1.0
 1.0e10
 2us
-"#,
+"####,
         expect![[r#"
             Lexeme { kind: Whitespace, len: 1 }
             Lexeme { kind: Literal { kind: Char { terminated: true }, suffix_start: 3 }, len: 3 }

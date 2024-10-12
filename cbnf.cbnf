@@ -1,7 +1,13 @@
 // cbnf's self description
 
 comment {
-    '#' text (EOL | EOF)
+    line_comment | block_comment
+}
+line_comment {
+    "//" text (EOL | EOF)
+}
+block_comment {
+    "/*" block_comment "*/" | text
 }
 syntax { 
     rule syntax | nil
@@ -13,16 +19,22 @@ list {
     term (list | nil)
 }
 term {
-    literal | char | ident | group | "nil"
+    string | char | ident | group | "nil"
 }
 group {
     '(' list ')'
 }
-literal {
+string {
     '"' text '"'
 }
 char {
     '\'' char '\''
+}
+regex {
+    'r' regex_content
+}
+regex_content {
+    '#' regex_content '#' | string
 }
 
 text {}

@@ -23,6 +23,15 @@ pub enum LexKind {
     /// "// comment"
     LineComment { doc_style: Option<DocStyle> },
 
+    /// `/* block comment */`
+    ///
+    /// Block comments can be recursive, so a sequence like `/* /* */`
+    /// will not be considered terminated and will result in a parsing error.
+    BlockComment {
+        doc_style: Option<DocStyle>,
+        terminated: bool,
+    },
+
     /// Any whitespace character sequence.
     Whitespace,
 
@@ -112,6 +121,7 @@ impl LexKind {
 
         match self {
             LineComment { .. } => "line comment",
+            BlockComment { .. } => "block comment",
             Whitespace => "whitespace",
             Ident => "ident",
             InvalidIdent => "invalid ident",

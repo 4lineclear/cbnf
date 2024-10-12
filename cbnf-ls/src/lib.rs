@@ -441,6 +441,10 @@ impl LanguageServer for Backend {
         *self.forms.entry(params.text_document.uri).or_default() = doc;
     }
 
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let _ = params;
+    }
+
     // TODO: do something with this
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         let _ = params;

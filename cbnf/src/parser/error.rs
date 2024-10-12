@@ -73,7 +73,7 @@ impl Error {
         let Expected(other_exp) = &other.kind else {
             return Some(other);
         };
-        #[allow(clippy::suspicious_operation_groupings)]
+        #[expect(clippy::suspicious_operation_groupings)]
         if self.span.to != other.span.from || exp != other_exp {
             return Some(other);
         }

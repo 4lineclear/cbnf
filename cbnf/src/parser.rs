@@ -56,7 +56,23 @@ impl<'a> Parser<'a> {
         if let LineComment { doc_style } = token.kind {
             self.push_comment(doc_style, token);
         }
-        matches!(token.kind, LineComment { .. } | Whitespace)
+        if let BlockComment {
+            doc_style,
+            terminated,
+        } = token.kind
+        {
+            if !terminated {
+                self.push_err(Error {
+                    span: self.span(token),
+                    kind: ErrorKind::Unterminated,
+                });
+            }
+            self.push_comment(doc_style, token);
+        }
+        matches!(
+            token.kind,
+            LineComment { .. } | BlockComment { .. } | Whitespace
+        )
     }
     fn err_expected(&mut self, span: impl Into<AsBSpan>, expected: impl Into<Box<[LexKind]>>) {
         self.push_err(Error {

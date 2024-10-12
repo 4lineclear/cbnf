@@ -27,9 +27,7 @@ pub mod util;
 
 // TODO: add another byte
 
-// TODO: add integers, floats and multiplication
-
-// TODO: replace meta-variables with regex && UnicodeSet notation
+// TODO: add regex && UnicodeSet notation
 
 // TODO: generate a parser generator from this file that is tested by
 // parsing this file

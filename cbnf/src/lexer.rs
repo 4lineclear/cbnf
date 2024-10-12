@@ -49,6 +49,12 @@ impl Cursor<'_> {
             return Lexeme::new(LexKind::Eof, 0);
         };
         let token_kind = match first_char {
+            // Slash, comment or block comment.
+            '/' => match self.first() {
+                '/' => self.line_comment(),
+                '*' => self.block_comment(),
+                _ => Slash,
+            },
             // Whitespace sequence.
             c if is_whitespace(c) => self.whitespace(),
 
@@ -66,13 +72,6 @@ impl Cursor<'_> {
                     suffix_start,
                 }
             }
-
-            // comment
-            // Slash, comment
-            '/' => match self.first() {
-                '/' => self.line_comment(),
-                _ => Slash,
-            },
 
             // One-symbol tokens.
             ';' => Semi,
@@ -129,6 +128,46 @@ impl Cursor<'_> {
 
         self.eat_while(|c| c != '\n');
         LineComment { doc_style }
+    }
+
+    fn block_comment(&mut self) -> LexKind {
+        dassert!(self.prev() == '/' && self.first() == '*');
+        self.bump();
+
+        let doc_style = match self.first() {
+            // `/*!` is an inner block doc comment.
+            '!' => Some(DocStyle::Inner),
+            // `/***` (more than 2 stars) is not considered a doc comment.
+            // `/**/` is not considered a doc comment.
+            '*' if !matches!(self.second(), '*' | '/') => Some(DocStyle::Outer),
+            _ => None,
+        };
+
+        let mut depth = 1usize;
+        while let Some(c) = self.bump() {
+            match c {
+                '/' if self.first() == '*' => {
+                    self.bump();
+                    depth += 1;
+                }
+                '*' if self.first() == '/' => {
+                    self.bump();
+                    depth -= 1;
+                    if depth == 0 {
+                        // This block comment is closed, so for a construction like "/* */ */"
+                        // there will be a successfully parsed block comment "/* */"
+                        // and " */" will be processed separately.
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        BlockComment {
+            doc_style,
+            terminated: depth == 0,
+        }
     }
 
     fn whitespace(&mut self) -> LexKind {
