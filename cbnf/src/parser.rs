@@ -23,7 +23,6 @@ pub struct Parser<'a> {
     pub(crate) comments: Vec<Comment>,
     pub(crate) docs: Vec<DocComment>,
     pub(crate) errors: Vec<Error>,
-    /// a central list of terms
     pub(crate) terms: Vec<Term>,
 }
 

@@ -5,12 +5,14 @@ edition = "2021"
 
 [dependencies]
 # unicode
+
 unicode-ident = "1.0"
 unicode-normalization = "0.1"
 unicode-properties = "0.1"
 # ustr = "1.0"
 
 # etc
+regex-syntax = "0.8"
 indexmap = "2.6"
 
 [dev-dependencies]

@@ -5,6 +5,8 @@
 
 use unicode_properties::UnicodeEmoji;
 
+use self::token::RawStrError;
+
 use super::util::{is_id_continue, is_id_start, is_whitespace};
 
 #[cfg(test)]
@@ -13,6 +15,8 @@ pub mod test;
 pub mod cursor;
 pub mod token;
 pub mod unescape;
+
+// TODO: consider adding normal guarded strings
 
 pub use cursor::{Cursor, EOF_CHAR};
 pub use token::{
@@ -33,14 +37,6 @@ pub fn tokenize(input: &str) -> impl Iterator<Item = Lexeme> + '_ {
     Cursor::new(input)
 }
 
-#[must_use]
-pub fn is_ident(s: &str) -> bool {
-    let mut chars = s.chars();
-    chars
-        .next()
-        .is_some_and(|start| is_id_start(start) && chars.all(is_id_continue))
-}
-
 impl Cursor<'_> {
     /// Parses a token from the input string.
     pub fn advance(&mut self) -> Lexeme {
@@ -55,19 +51,31 @@ impl Cursor<'_> {
                 '*' => self.block_comment(),
                 _ => Slash,
             },
+
             // Whitespace sequence.
             c if is_whitespace(c) => self.whitespace(),
 
+            // raw string literal or identifier.
+            'r' if matches!(self.first(), '#' | '"') => {
+                let res = self.raw_double_quoted_string(1);
+                let suffix_start = self.pos_within_token();
+                if res.is_ok() {
+                    self.eat_literal_suffix();
+                }
+                let kind = RawStr { n_hashes: res.ok() };
+                Literal { kind, suffix_start }
+            }
+
             // Identifier (this should be checked after other variant that can
             // start as identifier).
-            c if is_id_start(c) => self.ident(),
+            c if is_id_start(c) => self.ident_or_unknown_prefix(),
 
             // Numeric literal.
             c @ '0'..='9' => {
                 let literal_kind = self.number(c);
                 let suffix_start = self.pos_within_token();
                 self.eat_literal_suffix();
-                LexKind::Literal {
+                Literal {
                     kind: literal_kind,
                     suffix_start,
                 }
@@ -84,6 +92,7 @@ impl Cursor<'_> {
             '[' => OpenBracket,
             ']' => CloseBracket,
             '@' => At,
+            '#' => Pound,
             '~' => Tilde,
             '?' => Question,
             ':' => Colon,
@@ -100,13 +109,21 @@ impl Cursor<'_> {
             '^' => Caret,
             '%' => Percent,
 
-            // Character literal.
+            // character literal.
             '\'' => self.char(),
 
             // String literal.
-            '"' => self.string(),
+            '"' => {
+                let terminated = self.double_quoted_string();
+                let suffix_start = self.pos_within_token();
+                if terminated {
+                    self.eat_literal_suffix();
+                }
+                let kind = Str { terminated };
+                Literal { kind, suffix_start }
+            }
             // Identifier starting with an emoji. Only lexed for graceful error recovery.
-            c if !c.is_ascii() && c.is_emoji_char() => self.fake_ident(),
+            c if !c.is_ascii() && c.is_emoji_char() => self.fake_ident_or_unknown_prefix(),
             _ => Unknown,
         };
         let res = Lexeme::new(token_kind, self.pos_within_token());
@@ -176,27 +193,30 @@ impl Cursor<'_> {
         Whitespace
     }
 
-    fn ident(&mut self) -> LexKind {
+    fn ident_or_unknown_prefix(&mut self) -> LexKind {
         dassert!(is_id_start(self.prev()));
         // Start is already eaten, eat the rest of identifier.
         self.eat_while(is_id_continue);
         // Known prefixes must have been handled earlier. So if
         // we see a prefix here, it is definitely an unknown prefix.
         match self.first() {
-            c if !c.is_ascii() && c.is_emoji_char() => self.fake_ident(),
+            '#' | '"' | '\'' => InvalidPrefix,
+            c if !c.is_ascii() && c.is_emoji_char() => self.fake_ident_or_unknown_prefix(),
             _ => Ident,
         }
     }
 
-    fn fake_ident(&mut self) -> LexKind {
+    fn fake_ident_or_unknown_prefix(&mut self) -> LexKind {
         // Start is already eaten, eat the rest of identifier.
         self.eat_while(|c| {
-            unicode_ident::is_xid_continue(c)
-                || (!c.is_ascii() && c.is_emoji_char())
-                || c == '\u{200d}'
+            is_id_continue(c) || (!c.is_ascii() && c.is_emoji_char()) || c == '\u{200d}'
         });
-
-        InvalidIdent
+        // Known prefixes must have been handled earlier. So if
+        // we see a prefix here, it is definitely an unknown prefix.
+        match self.first() {
+            '#' | '"' | '\'' => InvalidPrefix,
+            _ => InvalidIdent,
+        }
     }
 
     pub fn string(&mut self) -> LexKind {
@@ -377,6 +397,77 @@ impl Cursor<'_> {
         false
     }
 
+    /// Eats the double-quoted string and returns `n_hashes` and an error if encountered.
+    fn raw_double_quoted_string(&mut self, prefix_len: u32) -> Result<u8, RawStrError> {
+        // Wrap the actual function to handle the error with too many hashes.
+        // This way, it eats the whole raw string.
+        let n_hashes = self.raw_string_unvalidated(prefix_len)?;
+        // Only up to 255 `#`s are allowed in raw strings
+        u8::try_from(n_hashes).map_err(|_| RawStrError::TooManyDelimiters { found: n_hashes })
+    }
+
+    fn raw_string_unvalidated(&mut self, prefix_len: u32) -> Result<u32, RawStrError> {
+        dassert!(self.prev() == 'r');
+        let start_pos = self.pos_within_token();
+        let mut possible_terminator_offset = None;
+        let mut max_hashes = 0;
+
+        // Count opening '#' symbols.
+        let mut eaten = 0;
+        while self.first() == '#' {
+            eaten += 1;
+            self.bump();
+        }
+        let n_start_hashes = eaten;
+
+        // Check that string is started.
+        match self.bump() {
+            Some('"') => (),
+            c => {
+                let c = c.unwrap_or(EOF_CHAR);
+                return Err(RawStrError::InvalidStarter { bad_char: c });
+            }
+        }
+
+        // Skip the string contents and on each '#' character met, check if this is
+        // a raw string termination.
+        loop {
+            self.eat_while(|c| c != '"');
+
+            if self.is_eof() {
+                return Err(RawStrError::NoTerminator {
+                    expected: n_start_hashes,
+                    found: max_hashes,
+                    possible_terminator_offset,
+                });
+            }
+
+            // Eat closing double quote.
+            self.bump();
+
+            // Check that amount of closing '#' symbols
+            // is equal to the amount of opening ones.
+            // Note that this will not consume extra trailing `#` characters:
+            // `r###"abcde"####` is lexed as a `RawStr { n_hashes: 3 }`
+            // followed by a `#` token.
+            let mut n_end_hashes = 0;
+            while self.first() == '#' && n_end_hashes < n_start_hashes {
+                n_end_hashes += 1;
+                self.bump();
+            }
+
+            if n_end_hashes == n_start_hashes {
+                return Ok(n_start_hashes);
+            } else if n_end_hashes > max_hashes {
+                // Keep track of possible terminators to give a hint about
+                // where there might be a missing terminator
+                possible_terminator_offset =
+                    Some(self.pos_within_token() - start_pos - n_end_hashes + prefix_len);
+                max_hashes = n_end_hashes;
+            }
+        }
+    }
+
     fn eat_decimal_digits(&mut self) -> bool {
         let mut has_digits = false;
         loop {
@@ -445,4 +536,22 @@ impl Iterator for Cursor<'_> {
         let token = self.advance();
         (token.kind != LexKind::Eof).then_some(token)
     }
+}
+
+/// Validates a raw string literal. Used for getting more information about a
+/// problem with a `RawStr`/`RawByteStr` with a `None` field.
+///
+/// # Panics
+///
+/// Panics if `input` is smaller than `prefix_len`
+#[inline]
+#[expect(clippy::missing_errors_doc)]
+pub fn validate_raw_str(input: &str, prefix_len: u32) -> Result<(), RawStrError> {
+    dassert!(!input.is_empty());
+    let mut cursor = crate::lexer::Cursor::new(input);
+    // Move past the leading `r` or `br`.
+    for _ in 0..prefix_len {
+        cursor.bump().unwrap();
+    }
+    cursor.raw_double_quoted_string(prefix_len).map(|_| ())
 }

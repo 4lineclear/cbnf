@@ -43,6 +43,10 @@ pub enum LexKind {
     /// Like the above, but containing invalid unicode codepoints.
     InvalidIdent,
 
+    /// Similar to the above, but *always* an error on every edition. This is used
+    /// for emoji identifier recovery, as those are not meant to be ever accepted.
+    InvalidPrefix,
+
     /// Examples: `12u8`, `1.0e-40`, `b"123"`. Note that `_` is an invalid
     /// suffix, but may be present here on string and float literals. Users of
     /// this type will need to check for and reject that case.
@@ -74,6 +78,8 @@ pub enum LexKind {
     CloseBracket,
     /// "@"
     At,
+    /// "#"
+    Pound,
     /// "~"
     Tilde,
     /// "?"
@@ -125,6 +131,7 @@ impl LexKind {
             Whitespace => "whitespace",
             Ident => "ident",
             InvalidIdent => "invalid ident",
+            InvalidPrefix => "invalid prefix",
             Literal { .. } => "literal",
             Semi => "semicolon",
             Comma => "comma",
@@ -136,6 +143,7 @@ impl LexKind {
             OpenBracket => "open bracket",
             CloseBracket => "close bracket",
             At => "@",
+            Pound => "#",
             Tilde => "~",
             Question => "?",
             Colon => ":",
@@ -181,6 +189,9 @@ pub enum LiteralKind {
     Char { terminated: bool },
     /// ""abc"", ""abc"
     Str { terminated: bool },
+    /// `r"abc"`, `r#"abc"#`, `r####"ab"###"c"####`, `r#"a`. `None` indicates
+    /// an invalid literal.
+    RawStr { n_hashes: Option<u8> },
 }
 
 impl LiteralKind {
@@ -194,6 +205,7 @@ impl LiteralKind {
         match self {
             Int { .. } | Float { .. } => true,
             Char { terminated } | Str { terminated } => terminated,
+            RawStr { n_hashes } => n_hashes.is_some(),
         }
     }
 }
@@ -209,4 +221,20 @@ pub enum Base {
     Decimal = 10,
     /// Literal starts with "0x".
     Hexadecimal = 16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RawStrError {
+    /// Non `#` characters exist between `r` and `"`, e.g. `r##~"abcde"##`
+    InvalidStarter { bad_char: char },
+    /// The string was not terminated, e.g. `r###"abcde"##`.
+    /// `possible_terminator_offset` is the number of characters after `r` or
+    /// `br` where they may have intended to terminate it.
+    NoTerminator {
+        expected: u32,
+        found: u32,
+        possible_terminator_offset: Option<u32>,
+    },
+    /// More than 255 `#`s exist.
+    TooManyDelimiters { found: u32 },
 }

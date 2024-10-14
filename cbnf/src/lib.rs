@@ -17,6 +17,8 @@ pub mod parser;
 pub mod span;
 pub mod util;
 
+// TODO: consider renaming to convenient bnf
+
 // TODO: consider moving to c or rust style comments
 // if that is done, add raw strings back in too.
 
@@ -28,6 +30,9 @@ pub mod util;
 // TODO: add another byte
 
 // TODO: add regex && UnicodeSet notation
+
+// TODO: consider moving back to an AST with Rc<T> everywhere to allow for
+// partial recompiling
 
 // TODO: generate a parser generator from this file that is tested by
 // parsing this file

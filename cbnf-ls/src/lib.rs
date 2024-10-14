@@ -16,16 +16,11 @@ use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 
 // TODO: create better diagnostics messages, find common errors
 
-// TODO: try to precompute more things
-
-// TODO: try to create a set of references at parse time
-
-// TODO: save && warn against duplicate rules
-
 // TODO: try to update the state with partial changes instead
 // of completely recomputing it each time
 
-// TODO: consider removing meta variables
+// TODO: add qol things:
+// = Generate new rule, at top level & when unkown rules have been detected
 
 #[derive(Debug)]
 pub struct Backend {

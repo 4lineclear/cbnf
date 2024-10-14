@@ -68,7 +68,10 @@ pub const fn is_whitespace(c: char) -> bool {
 
 #[must_use]
 pub fn valid_id(s: &str) -> bool {
-    s.chars().next().is_some_and(is_id_start) && s[1..].chars().all(is_id_continue)
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|start| is_id_start(start) && chars.all(is_id_continue))
 }
 
 #[must_use]
